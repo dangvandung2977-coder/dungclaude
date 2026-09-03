@@ -21,6 +21,7 @@ const CAPS = [
   { id: "video", label: "Đọc video" },
   { id: "reasoning", label: "Suy luận" },
   { id: "tools", label: "Tools" },
+  { id: "no_stream", label: "Non-streaming (Không stream)" },
 ];
 
 export default function AdminEndpointsPage() {

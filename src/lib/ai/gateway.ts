@@ -2,6 +2,7 @@ import { config } from "@/lib/config";
 import { modelNameOf, providerOf, parseModelRef, estimateTokens } from "./registry";
 import { getProviderApiKey, getProviderConfig } from "./providers-config";
 import { getEndpointCredentials } from "./custom-endpoints";
+import { isStreamingSupported, markStreamingUnsupported, isUpstreamUnsupportedError } from "./streaming-capabilities";
 
 // local alias to keep Anthropic cache-breakpoint check self-contained
 const estimateTokensStatic = estimateTokens;
@@ -56,7 +57,24 @@ function openAITools(tools: GatewayTool[]): unknown[] {
   return tools.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } }));
 }
 
-async function streamSSE(res: Response, onToken: (t: string) => void, onTool?: (id: string, name: string, args: string) => void): Promise<{ text: string; inputTokens: number; outputTokens: number; cachedInputTokens: number; cacheCreationTokens: number; toolCalls: Array<{ id: string; name: string; args: string }> }> {
+async function streamSSE(res: Response, onToken: (t: string) => void): Promise<{ text: string; inputTokens: number; outputTokens: number; cachedInputTokens: number; cacheCreationTokens: number; toolCalls: Array<{ id: string; name: string; args: string }> }> {
+  // If the upstream returned a single JSON response instead of SSE chunks
+  const contentType = res.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    const j = await res.json();
+    const choice = j.choices?.[0];
+    const text = choice?.message?.content || choice?.text || "";
+    if (text) onToken(text);
+    return {
+      text,
+      inputTokens: j.usage?.prompt_tokens ?? 0,
+      outputTokens: j.usage?.completion_tokens ?? 0,
+      cachedInputTokens: j.usage?.prompt_tokens_details?.cached_tokens ?? j.usage?.cached_tokens ?? 0,
+      cacheCreationTokens: j.usage?.prompt_tokens_details?.cache_creation_tokens ?? j.usage?.cache_creation_tokens ?? 0,
+      toolCalls: [],
+    };
+  }
+
   const reader = res.body!.getReader();
   const decoder = new TextDecoder();
   let buf = "";
@@ -103,23 +121,42 @@ async function streamSSE(res: Response, onToken: (t: string) => void, onTool?: (
 async function callOpenAICompatible(opts: {
   baseUrl: string; apiKey: string; model: string; messages: GatewayMessage[];
   tools: GatewayTool[]; cb: StreamCallbacks; timeoutMs: number; maxTokens?: number;
+  supportsStreaming?: boolean; capabilities?: string[];
 }): Promise<RawCallResult> {
-  const body: Record<string, unknown> = {
-    model: opts.model,
-    stream: true,
-    stream_options: { include_usage: true },
-    max_tokens: opts.maxTokens ? Math.max(opts.maxTokens, 8192) : undefined,
-    messages: opts.messages.map((m) => ({
-      role: m.role,
-      content: m.attachments?.length ? toOpenAIContent(m.content, m.attachments) : m.content,
-    })),
-  };
-  if (opts.tools.length > 0) {
-    body.tools = openAITools(opts.tools);
-    body.tool_choice = "auto";
+  // 1. Determine if this model / endpoint supports streaming
+  let isStream = opts.supportsStreaming;
+  if (isStream === undefined) {
+    isStream = isStreamingSupported({
+      baseUrl: opts.baseUrl,
+      modelId: opts.model,
+      capabilities: opts.capabilities,
+    });
   }
 
-  const executePost = async (modelName: string) => {
+  const buildBody = (streamMode: boolean, modelName: string) => {
+    const body: Record<string, unknown> = {
+      model: modelName,
+      max_tokens: opts.maxTokens ? Math.max(opts.maxTokens, 8192) : undefined,
+      messages: opts.messages.map((m) => ({
+        role: m.role,
+        content: m.attachments?.length ? toOpenAIContent(m.content, m.attachments) : m.content,
+      })),
+    };
+    if (streamMode) {
+      body.stream = true;
+      body.stream_options = { include_usage: true };
+    } else {
+      // NEVER send stream_options when stream is false
+      body.stream = false;
+    }
+    if (opts.tools.length > 0) {
+      body.tools = openAITools(opts.tools);
+      body.tool_choice = "auto";
+    }
+    return body;
+  };
+
+  const executePost = async (modelName: string, streamMode: boolean) => {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs);
     const onAbort = () => ctrl.abort();
@@ -128,7 +165,7 @@ async function callOpenAICompatible(opts: {
       const res = await fetch(`${opts.baseUrl.replace(/\/$/, "")}/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${opts.apiKey}` },
-        body: JSON.stringify({ ...body, model: modelName }),
+        body: JSON.stringify(buildBody(streamMode, modelName)),
         signal: ctrl.signal,
       });
       return { res, ctrl };
@@ -139,13 +176,28 @@ async function callOpenAICompatible(opts: {
   };
 
   const modelToUse = opts.model;
-  let { res } = await executePost(modelToUse);
+  let { res } = await executePost(modelToUse, isStream);
+
+  // 2. Automatic mismatch detection & fast non-streaming retry:
+  // If streaming was requested but upstream returned 400 with upstream_unsupported error
+  if (!res.ok && isStream) {
+    const errClone = res.clone();
+    const errText = await errClone.text().catch(() => "");
+    if (isUpstreamUnsupportedError(errText)) {
+      console.warn(
+        `[AI Gateway] Upstream "${opts.baseUrl}" does not support streaming (${errText.slice(0, 120)}). Auto-switching to non-streaming mode...`
+      );
+      markStreamingUnsupported({ baseUrl: opts.baseUrl, modelId: modelToUse });
+      isStream = false;
+      const retry = await executePost(modelToUse, false);
+      res = retry.res;
+    }
+  }
 
   // Smart Fast Fallback for Google/Gemini OpenAI endpoint:
-  // If model is 3.8 and Google returns 503 (high demand) or 404, fallback to gemini-2.5-flash immediately
   if (!res.ok && (res.status === 503 || res.status === 404) && modelToUse.includes("3.8") && opts.baseUrl.includes("generativelanguage.googleapis.com")) {
     console.warn(`[AI Gateway] Model "${modelToUse}" returned ${res.status}. Fast fallback to gemini-2.5-flash...`);
-    const fallback = await executePost("gemini-2.5-flash");
+    const fallback = await executePost("gemini-2.5-flash", isStream);
     if (fallback.res.ok) {
       res = fallback.res;
     }
@@ -155,8 +207,53 @@ async function callOpenAICompatible(opts: {
     const errText = (await res.text()).slice(0, 300);
     throw new Error(`Provider error ${res.status}: ${errText}`);
   }
+
+  // 3. Handle NON-STREAMING upstream response:
+  const contentType = res.headers.get("content-type") || "";
+  if (!isStream || contentType.includes("application/json")) {
+    const json = await res.json();
+    const choice = json.choices?.[0];
+    const text = choice?.message?.content || choice?.text || "";
+    const inputTokens = json.usage?.prompt_tokens ?? 0;
+    const outputTokens = json.usage?.completion_tokens ?? 0;
+    const cachedInputTokens =
+      json.usage?.prompt_tokens_details?.cached_tokens ?? json.usage?.cached_tokens ?? 0;
+    const cacheCreationTokens =
+      json.usage?.prompt_tokens_details?.cache_creation_tokens ??
+      json.usage?.cache_creation_tokens ??
+      0;
+    const toolCallsRaw =
+      (choice?.message?.tool_calls as Array<{ id: string; function?: { name?: string; arguments?: string } }> | undefined)?.map((tc) => ({
+        id: tc.id,
+        name: tc.function?.name ?? "",
+        args: tc.function?.arguments ?? "",
+      })) ?? [];
+
+    // Emit the complete response once to the callback immediately (no fake token delays)
+    if (text) {
+      opts.cb.onToken(text);
+    }
+
+    return {
+      text,
+      inputTokens,
+      outputTokens,
+      cachedInputTokens,
+      cacheCreationTokens,
+      toolCallsRaw,
+    };
+  }
+
+  // 4. Handle STREAMING SSE response:
   const out = await streamSSE(res, opts.cb.onToken);
-  return { text: out.text, inputTokens: out.inputTokens, outputTokens: out.outputTokens, cachedInputTokens: out.cachedInputTokens, cacheCreationTokens: out.cacheCreationTokens, toolCallsRaw: out.toolCalls };
+  return {
+    text: out.text,
+    inputTokens: out.inputTokens,
+    outputTokens: out.outputTokens,
+    cachedInputTokens: out.cachedInputTokens,
+    cacheCreationTokens: out.cacheCreationTokens,
+    toolCallsRaw: out.toolCalls,
+  };
 }
 
 async function callAnthropic(opts: { apiKey: string; model: string; messages: GatewayMessage[]; system?: string; stableSystemPrefix?: string; tools: GatewayTool[]; cb: StreamCallbacks; timeoutMs: number; maxTokens?: number }): Promise<RawCallResult> {
@@ -416,6 +513,8 @@ export async function runGateway(opts: {
   executeTool?: (name: string, input: unknown) => Promise<string>;
   fallbackOrder?: string[];
   maxTokens?: number; // dynamic output budget (optimization engine)
+  supportsStreaming?: boolean;
+  capabilities?: string[];
 }): Promise<GatewayResult> {
   const provider = providerOf(opts.modelId);
   const model = modelNameOf(opts.modelId);
@@ -440,6 +539,8 @@ export async function runGateway(opts: {
         baseUrl: cred.baseUrl, apiKey: cred.key, model: ref.model,
         messages: [...(opts.system ? [{ role: "system" as const, content: opts.system }] : []), ...opts.messages],
         tools, cb: opts.cb, timeoutMs: customTimeout, maxTokens: opts.maxTokens,
+        capabilities: opts.capabilities,
+        supportsStreaming: opts.supportsStreaming,
       });
       return await finalizeToolLoop(first, p, opts);
     }
@@ -470,7 +571,12 @@ export async function runGateway(opts: {
     const base = p === "openai" ? (cfg.baseUrl ?? "https://api.openai.com/v1")
       : p === "openrouter" ? (cfg.baseUrl ?? "https://openrouter.ai/api/v1")
       : (cfg.baseUrl || "https://api.openai.com/v1");
-    const first = await callOpenAICompatible({ baseUrl: base, apiKey: key, model: providerModel, messages: all, tools, cb: opts.cb, timeoutMs: config.ai.timeoutMs, maxTokens: opts.maxTokens });
+    const first = await callOpenAICompatible({
+      baseUrl: base, apiKey: key, model: providerModel, messages: all, tools, cb: opts.cb,
+      timeoutMs: config.ai.timeoutMs, maxTokens: opts.maxTokens,
+      capabilities: opts.capabilities,
+      supportsStreaming: opts.supportsStreaming,
+    });
     return await finalizeToolLoop(first, p, opts);
   };
 

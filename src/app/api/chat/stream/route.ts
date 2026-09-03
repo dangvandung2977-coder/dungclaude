@@ -5,6 +5,7 @@ import { getConversation, createConversation, createMessage, updateMessageStats,
 import { getSupabase, str } from "@/lib/db/supabase";
 import { resolveModel } from "@/lib/ai/providers-config";
 import { runGateway, type VisionAttachment } from "@/lib/ai/gateway";
+import { isUpstreamUnsupportedError } from "@/lib/ai/streaming-capabilities";
 import { TOOL_DEFS, executeTool } from "@/lib/tools/tools";
 import { calcCost, estimateTokens } from "@/lib/ai/registry";
 import { getCustomModelsAsAIModels } from "@/lib/ai/custom-endpoints";
@@ -286,7 +287,22 @@ export async function POST(req: Request): Promise<Response> {
           }
         }
 
-        send("status", { status: hasVideo ? "Đang phân tích video…" : hasImage ? "Đang phân tích ảnh…" : "Đang suy nghĩ…" });
+        const allModels = [...availableModels, ...(await getCustomModelsAsAIModels().catch(() => []))];
+        const modelMeta = allModels.find((m) => m.id === optimized.routing.modelId);
+        const supportsStreaming = modelMeta?.capabilities
+          ? !modelMeta.capabilities.includes("no_stream") && !modelMeta.capabilities.includes("non_streaming")
+          : undefined;
+
+        send("status", {
+          status: hasVideo
+            ? "Đang phân tích video…"
+            : hasImage
+            ? "Đang phân tích ảnh…"
+            : supportsStreaming === false
+            ? "Đang suy nghĩ (chế độ phản hồi đầy đủ)…"
+            : "Đang suy nghĩ…",
+        });
+
         const result = await runGateway({
           modelId: optimized.routing.modelId,
           messages: optimized.messages.map((m, i) => i === optimized.messages.length - 1 ? { ...m, attachments: atts } : m),
@@ -294,6 +310,8 @@ export async function POST(req: Request): Promise<Response> {
           stableSystemPrefix: optimized.stableSystemPrefix,
           tools: enabledTools,
           maxTokens: optimized.outputLimit,
+          supportsStreaming,
+          capabilities: modelMeta?.capabilities,
           cb: {
             onToken: (t) => { full += t; send("token", { delta: t }); },
             onToolCall: (id, name, input) => send("tool_call", { id, name, input }),
@@ -308,8 +326,6 @@ export async function POST(req: Request): Promise<Response> {
         }
         const inTok = result.inputTokens || estimateTokens(optimized.system + optimized.messages.map((m) => m.content).join("\n"));
         const outTok = result.outputTokens || estimateTokens(full);
-        const allModels = [...availableModels, ...(await getCustomModelsAsAIModels().catch(() => []))];
-        const modelMeta = allModels.find((m) => m.id === optimized.routing.modelId);
         const cost = modelMeta
           ? calculateCost(modelMeta, { inputTokens: inTok, outputTokens: outTok, cachedInputTokens: result.cachedInputTokens, cacheCreationTokens: result.cacheCreationTokens })
           : calcCost(optimized.routing.modelId, inTok, outTok, allModels);
@@ -433,8 +449,12 @@ export async function POST(req: Request): Promise<Response> {
             modelId: optimized.routing.modelId,
           }).catch(() => {});
         }
+        const rawErrMsg = e instanceof Error ? e.message : "AI lỗi, thử lại sau.";
+        const friendlyMsg = isUpstreamUnsupportedError(rawErrMsg)
+          ? "Mô hình này không hỗ trợ streaming. Hệ thống đã chuyển sang chế độ phản hồi đầy đủ cho các lượt kế tiếp."
+          : rawErrMsg;
         send("error", {
-          message: e instanceof Error ? e.message : "AI lỗi, thử lại sau.",
+          message: friendlyMsg,
           retryable: true,
         });
         controller.close();

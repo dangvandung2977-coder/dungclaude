@@ -2,7 +2,6 @@
 import { useEffect, useState } from "react";
 import { Image as ImageIcon, Film, MessageSquare, Zap, Brain, Database } from "lucide-react";
 import { Toggle } from "@/components/ui/primitives";
-import Link from "next/link";
 import { FUNCTION_LABELS, type FunctionKey } from "@/lib/config";
 import type { AIModel } from "@/types";
 import { cn } from "@/lib/utils";

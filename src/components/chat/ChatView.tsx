@@ -342,10 +342,11 @@ export function ChatView({
               }
             } else if (type === "token") {
               acc += j.delta ?? "";
-              // Batch tokens (~60ms) so a fast stream doesn't re-parse the
-              // whole markdown tree per token — keeps long streamed code smooth.
-              if (!flushTimer) {
-                flushTimer = window.setTimeout(flushNow, 60);
+              // If it's a full response from a non-streaming model or a large batch, render immediately
+              if (j.delta && j.delta.length > 50) {
+                flushNow();
+              } else if (!flushTimer) {
+                flushTimer = window.setTimeout(flushNow, 40);
               }
             } else if (type === "artifact") {
               // Artifact card: real generated file (docx/pptx/xlsx/pdf/md)
@@ -388,6 +389,7 @@ export function ChatView({
             } else if (type === "done") {
               const finalId = j.messageId || currentAsstId;
               if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+              setStatus("");
               setMessages((s) =>
                 s.map((m) =>
                   m.id === currentAsstId
@@ -398,14 +400,18 @@ export function ChatView({
               currentAsstId = finalId;
             } else if (type === "cancelled") {
               if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+              setStatus("");
               setMessages((s) =>
-                s.map((m) =>
-                  m.id === currentAsstId
-                    ? { ...m, content: acc, status: "cancelled" as const }
-                    : m
-                )
+                s
+                  .filter((m) => !(m.id === currentAsstId && !acc))
+                  .map((m) =>
+                    m.id === currentAsstId
+                      ? { ...m, content: acc, status: "cancelled" as const }
+                      : m
+                  )
               );
             } else if (type === "error") {
+              setStatus("");
               setMessages((s) =>
                 s.map((m) =>
                   m.id === currentAsstId
@@ -426,11 +432,13 @@ export function ChatView({
     } catch (e) {
       if ((e as Error).name === "AbortError") {
         setMessages((s) =>
-          s.map((m) =>
-            m.id === targetAsstId
-              ? { ...m, content: acc, status: "cancelled" as const }
-              : m
-          )
+          s
+            .filter((m) => !(m.id === targetAsstId && !acc))
+            .map((m) =>
+              m.id === targetAsstId
+                ? { ...m, content: acc, status: "cancelled" as const }
+                : m
+            )
         );
       } else {
         setMessages((s) =>
@@ -558,11 +566,13 @@ export function ChatView({
     setStatus("");
     isGeneratingRef.current = false;
     setMessages((prev) =>
-      prev.map((m) =>
-        m.status === "streaming" || m.id.startsWith("tmp_asst")
-          ? { ...m, status: "cancelled" as const }
-          : m
-      )
+      prev
+        .filter((m) => !(m.id.startsWith("tmp_asst") && !m.content))
+        .map((m) =>
+          m.status === "streaming" || m.id.startsWith("tmp_asst")
+            ? { ...m, status: "cancelled" as const }
+            : m
+        )
     );
     toast("Đã dừng tạo câu trả lời", "info");
   }, [toast]);
