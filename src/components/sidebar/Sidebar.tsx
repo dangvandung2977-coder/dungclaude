@@ -15,6 +15,7 @@ import {
   Pin,
   Trash2,
   X,
+  ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Conversation } from "@/types";
@@ -194,6 +195,26 @@ export function Sidebar({
               <Sliders size={15} className="text-[#A6A49B]" />
               <span className="text-sm">Customize</span>
             </Link>
+
+            {user?.role === "admin" && (
+              <Link
+                href="/admin"
+                prefetch={false}
+                onClick={onClose}
+                className={cn(
+                  "flex items-center justify-between px-3 py-2 rounded-lg transition-colors hover:bg-[#D97757]/15 text-[#D97757] border border-[#D97757]/20 my-1",
+                  pathname.startsWith("/admin") && "bg-[#D97757]/20 border-[#D97757]/40 text-white"
+                )}
+              >
+                <div className="flex items-center gap-2.5">
+                  <ShieldCheck size={15} className="text-[#D97757]" />
+                  <span className="text-sm font-medium">Quản trị Admin</span>
+                </div>
+                <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[#D97757]/25 text-[#D97757]">
+                  ADMIN
+                </span>
+              </Link>
+            )}
           </nav>
 
           {/* Chats and tasks Section Header */}
