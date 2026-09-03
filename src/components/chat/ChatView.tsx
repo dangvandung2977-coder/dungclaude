@@ -1,5 +1,5 @@
 "use client";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
   Pencil,
@@ -150,7 +150,7 @@ export function ChatView({
   const router = useRouter();
   const [streaming, setStreaming] = useState(false);
   const [status, setStatus] = useState("");
-  const safeModels = Array.isArray(models) ? models : [];
+  const safeModels = useMemo(() => (Array.isArray(models) ? models : []), [models]);
   const [modelId, setModelId] = useState<string>(() => safeModels[0]?.id ?? "auto");
   // Optimization telemetry from last response (subtle indicator, spec §27)
   const [lastOpt, setLastOpt] = useState<{ tokensSaved: number; model: string; strategy: string; costUsd?: number; cachedInputTokens?: number } | null>(null);

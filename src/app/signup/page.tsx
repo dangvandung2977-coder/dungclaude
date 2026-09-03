@@ -2,7 +2,13 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Input, Button } from "@/components/ui/primitives";
+import {
+  AuthLayout,
+  AuthCard,
+  AuthInput,
+  AuthButton,
+  AuthError,
+} from "@/components/auth";
 import { useSession } from "@/hooks/useSession";
 
 export default function SignupPage() {
@@ -37,74 +43,69 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="min-h-dvh flex items-center justify-center px-4 bg-[var(--bg)] text-[var(--text)]">
-      <form onSubmit={submit} className="card-elevated w-full max-w-sm p-7 border border-[var(--border)] shadow-xl">
-        <Link href="/" className="inline-flex items-center gap-2 font-semibold text-base mb-6 hover:opacity-90 transition-opacity">
-          <span className="h-7 w-7 rounded-lg bg-[var(--text)] text-[var(--bg)] flex items-center justify-center font-bold text-xs shadow-xs">
-            D
-          </span>
-          <span className="text-[15px] font-semibold">DungClaude</span>
-        </Link>
-
-        <h1 className="text-lg font-semibold tracking-tight">Tạo tài khoản mới</h1>
-        <p className="text-xs text-[var(--text-2)] mt-1 mb-5">
-          Khởi tạo tài khoản để trải nghiệm không gian làm việc AI.
-        </p>
-
-        <div className="space-y-3">
-          <div>
-            <label className="text-xs font-medium text-[var(--text-2)] block mb-1">Họ & Tên</label>
-            <Input
-              placeholder="VD: Nguyễn Văn A"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              autoComplete="name"
-            />
+    <AuthLayout>
+      <AuthCard
+        title="Tạo không gian làm việc"
+        subtitle="Khởi tạo không gian làm việc AI của bạn."
+        footer={
+          <div className="flex items-center justify-center gap-1.5 text-xs text-[#A6A49B]">
+            <span>Đã có tài khoản?</span>
+            <Link
+              href="/login"
+              className="font-medium text-[#ECEBE4] hover:text-[#D97757] transition-colors focus-visible:outline-none focus-visible:underline"
+            >
+              Đăng nhập
+            </Link>
           </div>
+        }
+      >
+        <form onSubmit={submit} className="flex flex-col gap-4">
+          <AuthInput
+            label="Họ & Tên"
+            placeholder="VD: Nguyễn Văn A"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoComplete="name"
+            disabled={loading}
+          />
 
-          <div>
-            <label className="text-xs font-medium text-[var(--text-2)] block mb-1">Email</label>
-            <Input
-              type="email"
-              required
-              placeholder="ten@congty.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              autoComplete="email"
-            />
-          </div>
+          <AuthInput
+            label="Email"
+            type="email"
+            required
+            placeholder="ten@congty.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoComplete="email"
+            disabled={loading}
+          />
 
-          <div>
-            <label className="text-xs font-medium text-[var(--text-2)] block mb-1">Mật khẩu (≥ 6 ký tự)</label>
-            <Input
-              type="password"
-              required
-              minLength={6}
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="new-password"
-            />
-          </div>
-        </div>
+          <AuthInput
+            label="Mật khẩu"
+            type="password"
+            isPassword
+            required
+            minLength={6}
+            hint="Tối thiểu 6 ký tự"
+            placeholder="••••••••"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="new-password"
+            disabled={loading}
+          />
 
-        {err && (
-          <div className="mt-3 p-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs" role="alert">
-            {err}
-          </div>
-        )}
+          <AuthError message={err} className="mt-1" />
 
-        <Button disabled={loading} loading={loading} className="w-full mt-5 py-2.5 shadow-sm">
-          Tạo tài khoản
-        </Button>
-
-        <p className="text-xs text-[var(--text-2)] mt-4 text-center">
-          Đã có tài khoản?{" "}
-          <Link href="/login" className="font-medium text-[var(--text)] hover:underline">
-            Đăng nhập
-          </Link>
-        </p>
-      </form>
-    </div>
+          <AuthButton
+            type="submit"
+            loading={loading}
+            loadingText="Đang tạo tài khoản..."
+            className="mt-2"
+          >
+            Tạo tài khoản
+          </AuthButton>
+        </form>
+      </AuthCard>
+    </AuthLayout>
   );
 }
