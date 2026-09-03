@@ -468,3 +468,32 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Auth Atmospheric Animations */
+@keyframes aurora-spin {
+  0% { transform: translate(-50%, -50%) rotate(0deg) scale(1); }
+  50% { transform: translate(-47%, -53%) rotate(180deg) scale(1.12); }
+  100% { transform: translate(-50%, -50%) rotate(360deg) scale(1); }
+}
+
+@keyframes conic-rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes float-subtle {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+.animate-aurora {
+  animation: aurora-spin 24s ease-in-out infinite;
+}
+
+.animate-conic {
+  animation: conic-rotate 8s linear infinite;
+}
+
+.animate-float {
+  animation: float-subtle 6s ease-in-out infinite;
+}

@@ -20,13 +20,21 @@ export function AuthButton({
       {...props}
       disabled={disabled || loading}
       className={cn(
-        "relative w-full h-12 rounded-xl font-medium text-sm transition-all duration-150 select-none cursor-pointer flex items-center justify-center gap-2",
-        "bg-[#ECEBE4] text-[#181716] shadow-md shadow-black/20 hover:bg-white hover:shadow-lg hover:shadow-black/30",
-        "active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D97757]/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#232220]",
-        (disabled || loading) && "opacity-60 cursor-not-allowed hover:bg-[#ECEBE4] hover:shadow-md active:scale-100",
+        "group relative w-full h-12 rounded-xl font-medium text-sm transition-all duration-200 select-none cursor-pointer flex items-center justify-center gap-2 overflow-hidden",
+        "bg-[#ECEBE4] text-[#181716] shadow-md shadow-black/25 hover:bg-white hover:shadow-xl hover:shadow-[#D97757]/10",
+        "active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D97757]/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#1C1B1A]",
+        (disabled || loading) && "opacity-60 cursor-not-allowed hover:bg-[#ECEBE4] active:scale-100",
         className
       )}
     >
+      {/* Interactive shimmer sweep on hover */}
+      {!loading && !disabled && (
+        <span
+          className="pointer-events-none absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-1000 ease-in-out bg-gradient-to-r from-transparent via-black/10 to-transparent"
+          aria-hidden="true"
+        />
+      )}
+
       {loading ? (
         <span className="inline-flex items-center gap-2.5 text-[#181716] font-medium">
           <svg
