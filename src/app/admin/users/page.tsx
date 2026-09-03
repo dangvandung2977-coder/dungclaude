@@ -46,6 +46,9 @@ interface MessageItem {
   role: "user" | "assistant" | "system";
   content: string;
   modelId?: string | null;
+  inputTokens?: number;
+  outputTokens?: number;
+  costUsd?: number;
   createdAt: string;
 }
 
@@ -367,6 +370,11 @@ export default function AdminUsersPage() {
                                 Model: {inspectingConv.modelId} · Cập nhật: {new Date(inspectingConv.updatedAt).toLocaleString("vi-VN")}
                               </p>
                             </div>
+                            <div className="text-right shrink-0">
+                              <span className="text-[11px] font-mono text-[#D97757] bg-[#D97757]/15 px-2.5 py-1 rounded-lg border border-[#D97757]/25 font-medium">
+                                Tổng: {convMessages.reduce((sum, m) => sum + (m.inputTokens ?? 0) + (m.outputTokens ?? 0), 0).toLocaleString()} tokens
+                              </span>
+                            </div>
                           </div>
 
                           {convLoading ? (
@@ -390,9 +398,19 @@ export default function AdminUsersPage() {
                                         : "bg-[#1C1B1A] border-white/[0.06] text-[#A6A49B]"
                                     }`}
                                   >
-                                    <div className="flex items-center gap-1.5 font-semibold mb-1 text-[11px] text-[#D97757]">
+                                    <div className="flex flex-wrap items-center gap-1.5 font-semibold mb-1 text-[11px] text-[#D97757]">
                                       {isUser ? <UserIcon size={12} /> : <Bot size={12} />}
                                       <span>{isUser ? "Người dùng" : "DungClaude AI"}</span>
+                                      {!isUser && m.modelId && (
+                                        <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-white/[0.06] text-[#ECEBE4]/80 font-normal">
+                                          {m.modelId}
+                                        </span>
+                                      )}
+                                      {!isUser && ((m.inputTokens ?? 0) > 0 || (m.outputTokens ?? 0) > 0) && (
+                                        <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-[#D97757]/15 text-[#D97757] font-normal border border-[#D97757]/20">
+                                          {(m.inputTokens ?? 0).toLocaleString()} in / {(m.outputTokens ?? 0).toLocaleString()} out tokens
+                                        </span>
+                                      )}
                                       <span className="text-[#75736C] font-normal ml-auto">
                                         {new Date(m.createdAt).toLocaleTimeString("vi-VN")}
                                       </span>

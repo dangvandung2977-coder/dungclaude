@@ -34,10 +34,10 @@ export async function GET(
     // 4. Get usage summary
     const { data: usageEvents } = await sb
       .from("usage_events")
-      .select("input_tokens, output_tokens, cost_usd, created_at, model_id")
+      .select("input_tokens, output_tokens, cost_usd, created_at, model")
       .eq("user_id", id)
       .order("created_at", { ascending: false })
-      .limit(100);
+      .limit(5000);
 
     const totalInput = (usageEvents ?? []).reduce((sum, e) => sum + (Number(e.input_tokens) || 0), 0);
     const totalOutput = (usageEvents ?? []).reduce((sum, e) => sum + (Number(e.output_tokens) || 0), 0);

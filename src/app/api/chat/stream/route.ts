@@ -247,6 +247,7 @@ export async function POST(req: Request): Promise<Response> {
       send("conversation", { conversationId: conv.id, title: conv.title });
       const started = Date.now();
       let full = "";
+      let assistantMsgSaved = false;
       const toolEvents: Array<{ id: string; name: string; input: unknown; output: string }> = [];
       try {
         // ── Artifact branch: user asked for a real file (docx/pptx/xlsx/pdf/md/csv) ──
@@ -273,6 +274,7 @@ export async function POST(req: Request): Promise<Response> {
               parts: [{ type: "file", fileName: artifact.fileName, fileId: artifact.id, mimeType: artifact.mimeType }],
               modelId: artifactModel,
             });
+            assistantMsgSaved = true;
             send("artifact", {
               id: artifact.id, fileName: artifact.fileName, kind: artifact.kind,
               mimeType: artifact.mimeType, sizeBytes: artifact.sizeBytes,
@@ -338,6 +340,7 @@ export async function POST(req: Request): Promise<Response> {
           ],
           modelId: optimized.routing.modelId,
         });
+        assistantMsgSaved = true;
         await updateMessageStats(assistantMsg.id, inTok, outTok, cost);
         // Optimized usage tracking (normalized schema; falls back if migration not run)
         await recordOptimizedUsage({
@@ -415,13 +418,13 @@ export async function POST(req: Request): Promise<Response> {
           console.log(`[CHAT] stream complete: conv=${conv.id} msg=${assistantMsg.id} latency=${Date.now() - started}ms`);
         }
         send("done", { messageId: assistantMsg.id });
-        controller.close();
+        try { controller.close(); } catch { /* ignore */ }
       } catch (e) {
         if (req.signal.aborted) {
           if (process.env.NODE_ENV !== "production") {
             console.log(`[CHAT] generation cancelled by user: conv=${conv.id}`);
           }
-          if (full) {
+          if (full && !assistantMsgSaved) {
             await createMessage({
               conversationId: conv.id,
               role: "assistant",
@@ -429,9 +432,10 @@ export async function POST(req: Request): Promise<Response> {
               parts: [{ type: "text", text: full }],
               modelId: optimized.routing.modelId,
             }).catch(() => {});
+            assistantMsgSaved = true;
           }
           send("cancelled", { partialText: full });
-          controller.close();
+          try { controller.close(); } catch { /* ignore */ }
           return;
         }
 
@@ -439,8 +443,8 @@ export async function POST(req: Request): Promise<Response> {
           console.error(`[CHAT] generation error: conv=${conv.id}`, e);
         }
 
-        // Persist partial so nothing is silently lost
-        if (full) {
+        // Persist partial ONLY if assistant message was not already saved
+        if (full && !assistantMsgSaved) {
           await createMessage({
             conversationId: conv.id,
             role: "assistant",
@@ -448,6 +452,7 @@ export async function POST(req: Request): Promise<Response> {
             parts: [{ type: "text", text: full }],
             modelId: optimized.routing.modelId,
           }).catch(() => {});
+          assistantMsgSaved = true;
         }
         const rawErrMsg = e instanceof Error ? e.message : "AI lỗi, thử lại sau.";
         const friendlyMsg = isUpstreamUnsupportedError(rawErrMsg)
@@ -457,7 +462,7 @@ export async function POST(req: Request): Promise<Response> {
           message: friendlyMsg,
           retryable: true,
         });
-        controller.close();
+        try { controller.close(); } catch { /* ignore */ }
       }
     },
   });
