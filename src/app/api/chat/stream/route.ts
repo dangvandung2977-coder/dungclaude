@@ -77,8 +77,50 @@ export async function POST(req: Request): Promise<Response> {
     }
   }
 
+  // ── TTFT: run every independent read concurrently, kick off user-message
+  // persistence immediately (non-blocking — the stream does not await it).
+  // Only quota/budget gates must resolve before we spend provider tokens. ──
+  const sb = getSupabase();
+  const settingsPromise = getOptimizationSettings().catch(() => null);
+  const modelsPromise = loadCachedModels().catch(() => [] as AIModel[]);
+  const projectPromise = conv.projectId
+    ? getProject(conv.projectId, user.id).catch(() => null)
+    : Promise.resolve(null);
+  const attachmentsPromise = (async () => {
+    const atts: VisionAttachment[] = [];
+    for (const id of body.attachmentIds) {
+      const a = await getAttachment(id).catch(() => null);
+      if (!a || a.userId !== user.id) continue;
+      const kind = a.mimeType.startsWith("image/") ? "image" : a.mimeType.startsWith("video/") ? "video" : "file";
+      let dataUrl = "";
+      try {
+        const buf = await downloadBuffer(a.storagePath);
+        // Cap inline size ~15MB per file for provider payloads
+        if (buf.length < 15 * 1024 * 1024) dataUrl = `data:${a.mimeType};base64,${buf.toString("base64")}`;
+      } catch { /* file missing -> text fallback */ }
+      atts.push({ id: a.id, fileName: a.fileName, mimeType: a.mimeType, dataUrl, kind, parsedText: a.parsedText });
+    }
+    return atts;
+  })();
+
+  // Read history BEFORE inserting the new message (avoids echo/duplicates).
+  // Runs concurrently with settings/models/attachments.
+  const historyPromise = sb
+    .from("messages")
+    .select("id,role,content,model_id,input_tokens,output_tokens")
+    .eq("conversation_id", conv.id)
+    .order("created_at", { ascending: true })
+    .limit(100)
+    .then(({ data }) =>
+      ((data ?? []) as Array<{ id: string; role: string; content: string; model_id: string | null; input_tokens: number | null; output_tokens: number | null }>).map((r) => ({
+        id: r.id, conversationId: conv.id, role: (r.role === "assistant" ? "assistant" : "user") as "user" | "assistant",
+        parts: [], content: str(r.content), modelId: r.model_id, inputTokens: r.input_tokens ?? 0,
+        outputTokens: r.output_tokens ?? 0, createdAt: "",
+      }))
+    );
+
+  const settings = await settingsPromise;
   // ── Quota + cost budget gates (before any provider call) ──
-  const settings = await getOptimizationSettings().catch(() => null);
   if (settings) {
     const [quota, budget] = await Promise.all([
       checkUserQuota(user.id, settings).catch(() => null),
@@ -103,19 +145,7 @@ export async function POST(req: Request): Promise<Response> {
   };
 
   // Load attachments (images/video/files) owned by user — from Supabase Storage
-  const atts: VisionAttachment[] = [];
-  for (const id of body.attachmentIds) {
-    const a = await getAttachment(id);
-    if (!a || a.userId !== user.id) continue;
-    const kind = a.mimeType.startsWith("image/") ? "image" : a.mimeType.startsWith("video/") ? "video" : "file";
-    let dataUrl = "";
-    try {
-      const buf = await downloadBuffer(a.storagePath);
-      // Cap inline size ~15MB per file for provider payloads
-      if (buf.length < 15 * 1024 * 1024) dataUrl = `data:${a.mimeType};base64,${buf.toString("base64")}`;
-    } catch { /* file missing -> text fallback */ }
-    atts.push({ id: a.id, fileName: a.fileName, mimeType: a.mimeType, dataUrl, kind, parsedText: a.parsedText });
-  }
+  const atts = await attachmentsPromise;
   const hasImage = atts.some((a) => a.kind === "image");
   const hasVideo = atts.some((a) => a.kind === "video");
 
@@ -130,15 +160,7 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   // Read history BEFORE inserting the new message (avoids echo/duplicates)
-  const sb = getSupabase();
-  const { data: histRows } = await sb.from("messages").select("id,role,content,model_id,input_tokens,output_tokens")
-    .eq("conversation_id", conv.id).order("created_at", { ascending: true }).limit(100);
-  const history = ((histRows ?? []) as Array<{ id: string; role: string; content: string; model_id: string | null; input_tokens: number | null; output_tokens: number | null }>)
-    .map((r) => ({
-      id: r.id, conversationId: conv.id, role: (r.role === "assistant" ? "assistant" : "user") as "user" | "assistant",
-      parts: [], content: str(r.content), modelId: r.model_id, inputTokens: r.input_tokens ?? 0,
-      outputTokens: r.output_tokens ?? 0, createdAt: "",
-    }));
+  const history = await historyPromise;
 
   if (body.regenerate) {
     // Khi Tạo lại: xóa câu trả lời cũ khỏi lịch sử để AI sinh lại câu mới toanh
@@ -153,11 +175,14 @@ export async function POST(req: Request): Promise<Response> {
       }
     }
   } else {
-    await createMessage({
+    // Persist the user message WITHOUT blocking the stream: the gateway call
+    // below starts as soon as the history read (above) has completed. The DB
+    // write races with provider TTFT and never gates it.
+    void createMessage({
       conversationId: conv.id, role: "user", content: body.content || "(đính kèm file)",
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       parts: userParts as any,
-    });
+    }).catch(() => {});
   }
 
   // Auto-title: heuristic first (zero tokens), cheap model only if heuristic fails
@@ -173,10 +198,8 @@ export async function POST(req: Request): Promise<Response> {
   // ── Optimization pipeline ──
   const baseSystem = "You are DungClaude, a helpful, thoughtful, and highly capable AI assistant. Respond in the user's preferred language (use Vietnamese if the user writes in Vietnamese, English if in English). Use clean Markdown with syntax-highlighted code blocks.";
   let projectInstructions = "";
-  if (conv.projectId) {
-    const prj = await getProject(conv.projectId, user.id);
-    if (prj?.instructions) projectInstructions = `[Project instructions — always follow]:\n${prj.instructions}`;
-  }
+  const prj = await projectPromise;
+  if (prj?.instructions) projectInstructions = `[Project instructions — always follow]:\n${prj.instructions}`;
 
   let enabledToolNames: string[] = ["calculator", "file_search"];
   if (Array.isArray(body.tools)) {
@@ -190,7 +213,7 @@ export async function POST(req: Request): Promise<Response> {
   }
   const enabledTools = TOOL_DEFS.filter((t) => enabledToolNames.includes(t.name));
 
-  const availableModels = await loadCachedModels().catch(() => [] as AIModel[]);
+  const availableModels = await modelsPromise;
   const mode = parseUserMode(body.optimizationMode) ?? effectiveSettings.mode;
   const optimized = await optimizeContext({
     user: { id: user.id },

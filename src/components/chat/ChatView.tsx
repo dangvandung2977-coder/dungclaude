@@ -228,20 +228,33 @@ export function ChatView({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [toggleIncognito]);
 
-  const executeStream = useCallback(
-    async ({
-      text,
-      files,
-      targetAsstId,
-      tools,
-      isRegenerate,
-    }: {
-      text: string;
-      files: PendingFile[];
-      targetAsstId: string;
-      tools: string[];
-      isRegenerate?: boolean;
-    }) => {
+  // ── Stable refs so memoized MessageItems never get new callback refs ──
+  const messagesRef = useRef<Message[]>(messages);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+  const streamingRef = useRef(streaming);
+  useEffect(() => { streamingRef.current = streaming; }, [streaming]);
+  const modelIdRef = useRef(modelId);
+  useEffect(() => { modelIdRef.current = modelId; }, [modelId]);
+  const responseLengthRef = useRef(responseLength);
+  useEffect(() => { responseLengthRef.current = responseLength; }, [responseLength]);
+  const activeConvIdRef = useRef(activeConvId);
+  useEffect(() => { activeConvIdRef.current = activeConvId; }, [activeConvId]);
+
+  // The one true stream executor. Stored in a ref so consumers get a stable
+  // callable while always running the latest closure.
+  const executeStreamImpl = async ({
+    text,
+    files,
+    targetAsstId,
+    tools,
+    isRegenerate,
+  }: {
+    text: string;
+    files: PendingFile[];
+    targetAsstId: string;
+    tools: string[];
+    isRegenerate?: boolean;
+  }) => {
     if (isGeneratingRef.current) return;
     isGeneratingRef.current = true;
     setStreaming(true);
@@ -252,21 +265,21 @@ export function ChatView({
     // Token batching state (smooth streaming — declared before try so the
     // finally block can flush/cancel; see "token" handler)
     let flushTimer: number | null = null;
-    const flushTokens = () => {
+    let acc = "";
+    let currentAsstId = targetAsstId;
+    const flushNow = () => {
       flushTimer = null;
+      // Patches ONLY the streaming message; every other message keeps its
+      // object ref so React.memo skips re-rendering them.
       setMessages((s) =>
         s.map((m) =>
-          m.id === currentAsstId
-            ? { ...m, content: acc, status: "streaming" as const }
-            : m
+          m.id === currentAsstId ? { ...m, content: acc, status: "streaming" as const } : m
         )
       );
     };
-    let acc = "";
-    let currentAsstId = targetAsstId;
 
     if (process.env.NODE_ENV !== "production") {
-      console.log(`[CHAT] send start: conv=${activeConvId} targetAsst=${targetAsstId}`);
+      console.log(`[CHAT] send start: conv=${activeConvIdRef.current} targetAsst=${targetAsstId}`);
     }
 
     try {
@@ -274,13 +287,13 @@ export function ChatView({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          conversationId: activeConvId,
+          conversationId: activeConvIdRef.current,
           content: text,
-          modelId,
+          modelId: modelIdRef.current,
           attachmentIds: files.map((f) => f.id),
           tools,
           projectId: projectId ?? undefined,
-          responseLength,
+          responseLength: responseLengthRef.current,
           regenerate: Boolean(isRegenerate),
         }),
         signal: ctrl.signal,
@@ -316,7 +329,7 @@ export function ChatView({
           try {
             const j = JSON.parse(data);
             if (type === "conversation") {
-              if (j.conversationId && (activeConvId === "new" || activeConvId !== j.conversationId)) {
+              if (j.conversationId && (activeConvIdRef.current === "new" || activeConvIdRef.current !== j.conversationId)) {
                 currentConvIdRef.current = j.conversationId;
                 setActiveConvId(j.conversationId);
                 window.history.replaceState(null, "", `/app/c/${j.conversationId}`);
@@ -331,7 +344,7 @@ export function ChatView({
               // Batch tokens (~60ms) so a fast stream doesn't re-parse the
               // whole markdown tree per token — keeps long streamed code smooth.
               if (!flushTimer) {
-                flushTimer = window.setTimeout(flushTokens, 60);
+                flushTimer = window.setTimeout(flushNow, 60);
               }
             } else if (type === "artifact") {
               // Artifact card: real generated file (docx/pptx/xlsx/pdf/md)
@@ -387,7 +400,7 @@ export function ChatView({
               setMessages((s) =>
                 s.map((m) =>
                   m.id === currentAsstId
-                    ? { ...m, status: "cancelled" as const }
+                    ? { ...m, content: acc, status: "cancelled" as const }
                     : m
                 )
               );
@@ -414,7 +427,7 @@ export function ChatView({
         setMessages((s) =>
           s.map((m) =>
             m.id === targetAsstId
-              ? { ...m, status: "cancelled" as const }
+              ? { ...m, content: acc, status: "cancelled" as const }
               : m
           )
         );
@@ -424,8 +437,8 @@ export function ChatView({
             m.id === targetAsstId
               ? {
                   ...m,
-                  content: m.content
-                    ? `${m.content}\n\n❌ Lỗi: ${e instanceof Error ? e.message : String(e)}`
+                  content: acc
+                    ? `${acc}\n\n❌ Lỗi: ${e instanceof Error ? e.message : String(e)}`
                     : `❌ Không gửi được: ${e instanceof Error ? e.message : String(e)}`,
                   status: "error" as const,
                 }
@@ -440,14 +453,17 @@ export function ChatView({
       isGeneratingRef.current = false;
       abortRef.current = null;
     }
-  }, [activeConvId, modelId, projectId, responseLength]);
+  };
+
+  const executeStreamRef = useRef(executeStreamImpl);
+  executeStreamRef.current = executeStreamImpl;
 
   async function send(
     text: string,
     files: PendingFile[],
     opts: { webSearch: boolean; tools: boolean }
   ) {
-    if (streaming || isGeneratingRef.current) return;
+    if (isGeneratingRef.current) return;
     const tools = [
       ...(opts.tools ? ["calculator", "file_search"] : []),
       ...(opts.webSearch ? ["web_search"] : []),
@@ -458,7 +474,7 @@ export function ChatView({
     // Optimistic user message
     const tempUser: Message = {
       id: `tmp_user_${Date.now()}`,
-      conversationId: activeConvId,
+      conversationId: activeConvIdRef.current,
       role: "user",
       content: text || "(đính kèm tệp)",
       status: "completed",
@@ -479,7 +495,7 @@ export function ChatView({
     // Optimistic assistant placeholder
     const tempAsst: Message = {
       id: asstId,
-      conversationId: activeConvId,
+      conversationId: activeConvIdRef.current,
       role: "assistant",
       content: "",
       status: "streaming",
@@ -490,7 +506,7 @@ export function ChatView({
 
     setMessages((s) => [...s, tempUser, tempAsst]);
 
-    await executeStream({
+    void executeStreamRef.current({
       text,
       files,
       targetAsstId: asstId,
@@ -498,39 +514,39 @@ export function ChatView({
     });
   }
 
-  const retryMessage = useCallback((assistantMessageId: string) => {
-    if (streaming || isGeneratingRef.current) return;
+  const sendRef = useRef(send);
+  sendRef.current = send;
 
-    const asstIndex = messages.findIndex((m) => m.id === assistantMessageId);
+  // Stable regenerate: reads latest messages via ref, no closure staleness,
+  // no inline-arrow churn breaking MessageItem memo.
+  const stableRegen = useCallback((id: string) => {
+    if (isGeneratingRef.current) return;
+    const asstIndex = messagesRef.current.findIndex((m) => m.id === id);
     if (asstIndex === -1) return;
-
-    const userMsg = [...messages.slice(0, asstIndex)].reverse().find((m) => m.role === "user");
+    const userMsg = [...messagesRef.current.slice(0, asstIndex)].reverse().find((m) => m.role === "user");
     if (!userMsg) return;
 
-    // Reset this assistant message placeholder in-place without duplicating user message
     setMessages((prev) =>
       prev.map((m) =>
-        m.id === assistantMessageId
-          ? {
-              ...m,
-              content: "",
-              status: "streaming" as const,
-              parts: [{ id: `ta_${Date.now()}`, type: "text", text: "" }],
-            }
+        m.id === id
+          ? { ...m, content: "", status: "streaming" as const, parts: [{ id: `ta_${Date.now()}`, type: "text" as const, text: "" }] }
           : m
       )
     );
-
-    const tools: string[] = [];
     toast("Đang tạo lại câu trả lời…", "info");
-    void executeStream({
+    void executeStreamRef.current({
       text: userMsg.content,
       files: [],
-      targetAsstId: assistantMessageId,
-      tools,
+      targetAsstId: id,
+      tools: [],
       isRegenerate: true,
     });
-  }, [messages, streaming, executeStream, toast]);
+  }, [toast]);
+
+  // Stable edit-and-resend for memoized MessageItem
+  const handleEditMessage = useCallback((editedText: string) => {
+    sendRef.current(editedText, [], { webSearch: false, tools: true });
+  }, []);
 
   const stop = useCallback(() => {
     if (abortRef.current) {
@@ -699,14 +715,10 @@ export function ChatView({
                     streaming={streaming && (m.status === "streaming" || m.id.startsWith("tmp_asst"))}
                     onRegenerate={
                       m.role === "assistant"
-                        ? () => retryMessage(m.id)
+                        ? stableRegen.bind(null, m.id)
                         : undefined
                     }
-                    onEdit={
-                      m.role === "user"
-                        ? (editedText) => send(editedText, [], { webSearch: false, tools: true })
-                        : undefined
-                    }
+                    onEdit={m.role === "user" ? handleEditMessage : undefined}
                   />
                 ))}
 
