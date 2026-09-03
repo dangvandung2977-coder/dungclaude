@@ -2,7 +2,6 @@ import React from "react";
 import Link from "next/link";
 import {
   ArrowRight,
-  Sparkles,
   Code2,
   FileText,
   FolderKanban,
@@ -177,7 +176,7 @@ export default function LandingPage() {
 
               {/* Prompt Query Preview */}
               <div className="text-base sm:text-lg text-[#ECEBE4] font-medium leading-relaxed mb-4">
-                "Phân tích kiến trúc hệ thống và sinh mã nguồn component với hiệu ứng ánh sáng động..."
+                &ldquo;Phân tích kiến trúc hệ thống và sinh mã nguồn component với hiệu ứng ánh sáng động...&rdquo;
               </div>
 
               {/* Interactive Pills */}
