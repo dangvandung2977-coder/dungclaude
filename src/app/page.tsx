@@ -11,6 +11,7 @@ import {
   Cpu,
   ChevronRight,
 } from "lucide-react";
+import { DungClaudeLogo } from "@/components/brand/DungClaudeLogo";
 
 export default function LandingPage() {
   return (
@@ -59,17 +60,9 @@ export default function LandingPage() {
           className="group flex items-center gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D97757]/50 rounded-xl transition-transform active:scale-[0.98]"
           aria-label="DungClaude Home"
         >
-          {/* Glowing Brand Icon Frame */}
-          <div className="relative flex items-center justify-center">
-            <div className="absolute -inset-1 rounded-xl bg-gradient-to-tr from-[#D97757]/50 to-amber-500/20 blur-sm opacity-60 group-hover:opacity-100 transition-opacity" />
-            <div className="relative h-10 w-10 rounded-xl overflow-hidden border border-white/[0.18] shadow-lg shadow-black/60 bg-[#1A1918] flex items-center justify-center group-hover:scale-105 transition-transform duration-300">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/dungclaude-icon.png"
-                alt="DungClaude"
-                className="h-full w-full object-cover"
-              />
-            </div>
+          {/* Glowing Brand Icon Frame (Pure SVG) */}
+          <div className="group-hover:scale-105 transition-transform duration-300">
+            <DungClaudeLogo size={38} showGlow />
           </div>
 
           {/* Brand Name Typography */}

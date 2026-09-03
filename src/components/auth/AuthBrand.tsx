@@ -1,6 +1,7 @@
 "use client";
 import React from "react";
 import Link from "next/link";
+import { DungClaudeLogo } from "@/components/brand/DungClaudeLogo";
 import { cn } from "@/lib/utils";
 
 interface AuthBrandProps {
@@ -15,19 +16,10 @@ export function AuthBrand({ className }: AuthBrandProps) {
         className="group inline-flex items-center gap-3.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D97757]/50 rounded-2xl p-1 transition-all duration-300 active:scale-[0.98]"
         aria-label="Về trang chủ DungClaude"
       >
-        {/* Brand Mark with glowing ambient halo */}
+        {/* Pure SVG Brand Mark with dynamic glow */}
         <div className="relative flex items-center justify-center">
-          {/* Animated pulsing glow backdrop */}
-          <div className="absolute -inset-2 rounded-2xl bg-gradient-to-tr from-[#D97757]/45 via-amber-500/20 to-transparent blur-md opacity-60 group-hover:opacity-100 group-hover:scale-110 transition-all duration-300" />
-
-          {/* Logo container */}
-          <div className="relative h-12 w-12 rounded-xl overflow-hidden border border-white/[0.18] shadow-2xl shadow-black/80 bg-[#181716] flex items-center justify-center transition-all duration-300 group-hover:scale-105 group-hover:border-[#D97757]/70">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/dungclaude-logo.jpg"
-              alt="DungClaude Logo"
-              className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
-            />
+          <div className="group-hover:scale-105 transition-transform duration-300">
+            <DungClaudeLogo size={46} showGlow />
           </div>
         </div>
 
