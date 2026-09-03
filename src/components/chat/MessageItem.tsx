@@ -180,8 +180,9 @@ export const MessageItem = React.memo(function MessageItem({
 
   // USER MESSAGE (Claude style: right-aligned pill bubble)
   if (message.role === "user") {
-    const images = message.parts.filter((p) => p.type === "image");
-    const files = message.parts.filter((p) => p.type === "file");
+    const safeParts = Array.isArray(message.parts) ? message.parts : [];
+    const images = safeParts.filter((p) => p && p.type === "image");
+    const files = safeParts.filter((p) => p && p.type === "file");
 
     return (
       <article className="group relative py-2 flex flex-col items-end w-full select-text" aria-label="Tin nhắn của bạn">
@@ -295,9 +296,10 @@ export const MessageItem = React.memo(function MessageItem({
   }
 
   // ASSISTANT MESSAGE (Claude style)
-  const toolParts = message.parts.filter((p) => p.type === "tool_call");
-  const artifactParts = message.parts.filter(
-    (p) => p.type === "file" && Boolean(p.fileId || p.url)
+  const safeParts = Array.isArray(message.parts) ? message.parts : [];
+  const toolParts = safeParts.filter((p) => p && p.type === "tool_call");
+  const artifactParts = safeParts.filter(
+    (p) => p && p.type === "file" && Boolean(p.fileId || p.url)
   );
 
   return (

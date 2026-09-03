@@ -145,22 +145,23 @@ export function ChatView({
   projectId,
   conversationTitle = "Cuộc trò chuyện",
 }: ChatViewProps) {
-  const [messages, setMessages] = useState<Message[]>(initialMessages);
+  const [messages, setMessages] = useState<Message[]>(() => (Array.isArray(initialMessages) ? initialMessages : []));
   const [activeConvId, setActiveConvId] = useState(conversationId);
   const router = useRouter();
   const [streaming, setStreaming] = useState(false);
   const [status, setStatus] = useState("");
-  const [modelId, setModelId] = useState<string>(() => models[0]?.id ?? "auto");
+  const safeModels = Array.isArray(models) ? models : [];
+  const [modelId, setModelId] = useState<string>(() => safeModels[0]?.id ?? "auto");
   // Optimization telemetry from last response (subtle indicator, spec §27)
   const [lastOpt, setLastOpt] = useState<{ tokensSaved: number; model: string; strategy: string; costUsd?: number; cachedInputTokens?: number } | null>(null);
   // Response length preference (concise/balanced/detailed → output budget, spec §16)
   const [responseLength, setResponseLength] = useState<"concise" | "balanced" | "detailed">("balanced");
 
   useEffect(() => {
-    if ((!modelId || modelId === "auto") && models.length > 0) {
-      setModelId(models[0].id);
+    if ((!modelId || modelId === "auto") && safeModels.length > 0) {
+      setModelId(safeModels[0].id);
     }
-  }, [models, modelId]);
+  }, [safeModels, modelId]);
   const [showJump, setShowJump] = useState(false);
   const [activeCategory, setActiveCategory] = useState<CategoryKey | null>(null);
   const [isIncognito, setIsIncognito] = useState(false);
@@ -179,7 +180,7 @@ export function ChatView({
     // Only re-sync state when navigating to a different conversation
     if (currentConvIdRef.current !== conversationId) {
       currentConvIdRef.current = conversationId;
-      setMessages(initialMessages);
+      setMessages(Array.isArray(initialMessages) ? initialMessages : []);
       setActiveConvId(conversationId);
     }
   }, [conversationId, initialMessages]);
@@ -712,7 +713,7 @@ export function ChatView({
                   <MessageItem
                     key={m.id}
                     message={m}
-                    streaming={streaming && (m.status === "streaming" || m.id.startsWith("tmp_asst"))}
+                    streaming={streaming && (m.status === "streaming" || (typeof m.id === "string" && m.id.startsWith("tmp_asst")))}
                     onRegenerate={
                       m.role === "assistant"
                         ? stableRegen.bind(null, m.id)

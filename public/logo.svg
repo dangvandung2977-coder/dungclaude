@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="DungClaude logo">
+  <!-- DungClaude mark: terracotta sunburst asterisk on a dark rounded tile -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2B2927"/>
+      <stop offset="1" stop-color="#1F1E1D"/>
+    </linearGradient>
+    <linearGradient id="spark" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#E2886A"/>
+      <stop offset="1" stop-color="#D97757"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#bg)"/>
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="none" stroke="#FFFFFF" stroke-opacity="0.06" stroke-width="2"/>
+
+  <!-- Sunburst asterisk: 3 crossing rounded bars (matches in-app ClaudeAsterisk) -->
+  <g fill="url(#spark)">
+    <rect x="238" y="96" width="36" height="320" rx="18"/>
+    <rect x="96" y="238" width="320" height="36" rx="18"/>
+    <rect x="238" y="96" width="36" height="320" rx="18" transform="rotate(45 256 256)"/>
+    <rect x="238" y="96" width="36" height="320" rx="18" transform="rotate(-45 256 256)"/>
+  </g>
+
+  <!-- Subtle center glow -->
+  <circle cx="256" cy="256" r="60" fill="#D97757" opacity="0.18"/>
+</svg>

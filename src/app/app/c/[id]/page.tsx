@@ -23,11 +23,11 @@ export default async function ChatPage({ params }: { params: Promise<{ id: strin
   return (
     <ChatView
       conversationId={id}
-      initialMessages={messages}
-      models={models}
+      initialMessages={messages ?? []}
+      models={models ?? []}
       projectId={conv.projectId}
-      conversationTitle={conv.title}
-      pinned={conv.pinned}
+      conversationTitle={conv.title ?? "Cuộc trò chuyện"}
+      pinned={conv.pinned ?? false}
     />
   );
 }

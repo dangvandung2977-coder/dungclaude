@@ -34,7 +34,8 @@ export const CodeBlock = React.memo(function CodeBlock({
   const [expanded, setExpanded] = useState(false);
   const [wrap, setWrap] = useState(false);
 
-  const lines = useMemo(() => code.replace(/\n$/, "").split("\n"), [code]);
+  const safeCode = code || "";
+  const lines = useMemo(() => safeCode.replace(/\n$/, "").split("\n"), [safeCode]);
   const total = lines.length;
   const collapsible = total > COLLAPSE_LINES;
   const visibleLines = collapsible && !expanded
@@ -45,8 +46,8 @@ export const CodeBlock = React.memo(function CodeBlock({
   const isPython = useMemo(() => {
     const l = (language || "").toLowerCase().trim();
     if (l === "python" || l === "py" || l === "python3" || l === "py3") return true;
-    return /^\s*(import\s+\w+|from\s+\w+\s+import|def\s+\w+\s*\(|class\s+\w+.*:|if\s+__name__\s*==\s*['"]__main__['"]:)/m.test(code);
-  }, [language, code]);
+    return /^\s*(import\s+\w+|from\s+\w+\s+import|def\s+\w+\s*\(|class\s+\w+.*:|if\s+__name__\s*==\s*['"]__main__['"]:)/m.test(safeCode);
+  }, [language, safeCode]);
 
   const ext = useMemo(() => {
     if (isPython) return "py";

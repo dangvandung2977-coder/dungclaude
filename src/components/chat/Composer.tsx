@@ -62,13 +62,21 @@ export function Composer({
 
   // Draft persistence
   useEffect(() => {
-    const key = `claude:draft:${modelId}`;
-    const saved = sessionStorage.getItem(key);
-    if (saved) setText(saved);
+    try {
+      const key = `claude:draft:${modelId}`;
+      const saved = sessionStorage.getItem(key);
+      if (saved) setText(saved);
+    } catch {
+      // Ignore security/quota errors
+    }
   }, [modelId]);
 
   useEffect(() => {
-    sessionStorage.setItem(`claude:draft:${modelId}`, text);
+    try {
+      sessionStorage.setItem(`claude:draft:${modelId}`, text);
+    } catch {
+      // Ignore security/quota errors
+    }
   }, [text, modelId]);
 
   async function pickFiles(list: FileList | File[] | null) {

@@ -27,7 +27,8 @@ export function ModelSelector({ models, modelId, onSelect, compact = false }: Mo
     }
   }, [open]);
 
-  const visibleModels = models.filter((m) => m.enabled && !m.id.startsWith("demo:"));
+  const safeModels = Array.isArray(models) ? models : [];
+  const visibleModels = safeModels.filter((m) => m && m.enabled && typeof m.id === "string" && !m.id.startsWith("demo:"));
   const currentModel = visibleModels.find((m) => m.id === modelId) || visibleModels[0];
 
   function getDisplayLabel() {
