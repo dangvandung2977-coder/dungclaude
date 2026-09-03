@@ -7,7 +7,7 @@ import { createAttachment } from "@/lib/db/repos";
 import { uid } from "@/lib/db/supabase";
 import {
   artifactSystemPrompt, extractJson,
-  documentSchema, presentationSchema, spreadsheetSchema,
+  documentSchema, presentationSchema, spreadsheetSchema, projectZipSchema,
 } from "./schema";
 import { detectArtifactIntent, safeFileName, ARTIFACT_MIME, type ArtifactKind } from "./intent";
 import { generateDocx, generatePptx, generateXlsx, generatePdf, generateMarkdown } from "./generators";
@@ -41,7 +41,7 @@ export async function generateArtifact(
   const kind = intent.kind;
 
   // 1. LLM produces structured content (JSON) or raw code (Python)
-  const prompt = artifactSystemPrompt(kind === "pptx" ? "pptx" : kind === "xlsx" ? "xlsx" : kind === "py" ? "py" : "docx");
+  const prompt = artifactSystemPrompt(kind === "pptx" ? "pptx" : kind === "xlsx" ? "xlsx" : kind === "py" ? "py" : kind === "zip" ? "zip" : "docx");
 
   // Extract previous conversational context so the artifact reflects the real discussion
   const historyMessages = (opts?.history ?? [])
@@ -68,10 +68,22 @@ export async function generateArtifact(
   const parsed = kind === "py" ? null : extractJson(result.text);
 
   // 2. Validate + generate real file
-  const fileName = intent.fileName ?? (kind === "py" ? "main.py" : safeFileName(extractTitle(parsed) ?? message.slice(0, 50), kind));
+  const fileName = intent.fileName ?? (kind === "py" ? "main.py" : kind === "zip" ? safeFileName(extractTitle(parsed) ?? "project", "zip") : safeFileName(extractTitle(parsed) ?? message.slice(0, 50), kind));
   let bytes: Buffer;
   let mimeType: string;
   switch (kind) {
+    case "zip": {
+      const JSZip = (await import("jszip")).default;
+      const zip = new JSZip();
+      const proj = projectZipSchema.parse(parsed);
+      for (const f of proj.files) {
+        const cleanPath = f.path.replace(/^\/+/, "");
+        zip.file(cleanPath, f.content);
+      }
+      bytes = (await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" })) as Buffer;
+      mimeType = ARTIFACT_MIME.zip;
+      break;
+    }
     case "py": {
       const cleanCode = result.text.trim().replace(/^```(?:python|py)?\s*/i, "").replace(/```\s*$/, "");
       bytes = Buffer.from(cleanCode, "utf8");

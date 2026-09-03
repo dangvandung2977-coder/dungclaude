@@ -1,7 +1,7 @@
 // Artifact Intent Router — heuristic (zero-token) detection of document/artifact
 // requests in user messages (Vietnamese + English). Pure function, provider-independent.
 export type ArtifactKind =
-  | "docx" | "pptx" | "xlsx" | "pdf" | "md" | "csv" | "txt" | "json" | "html" | "py";
+  | "docx" | "pptx" | "xlsx" | "pdf" | "md" | "csv" | "txt" | "json" | "html" | "py" | "zip";
 
 export interface ArtifactIntent {
   kind: ArtifactKind | null;   // null = no artifact request
@@ -27,6 +27,7 @@ const KIND_PATTERNS: KindPattern[] = [
   { kind: "html", words: ["trang html", "html page", "file html", "tập tin html"], exts: ["html", "htm"] },
   { kind: "txt", words: ["file text", "tệp text", "tập tin text", "txt file", "text file"], exts: ["txt"] },
   { kind: "py", words: ["file python", "tệp python", "tập tin python", "tạo file py", "tệp py", "python script", "script python", "python file", "code python tải về", "code python tai ve"], exts: ["py"] },
+  { kind: "zip", words: ["file zip", "tệp zip", "tập tin zip", "tạo zip", "tao zip", "nén zip", "nen zip", "gộp zip", "gop zip", "gộp file vào zip", "gop file vao zip", "gộp file", "tải zip", "tai zip", "project zip", "dự án zip", "du an zip", "nén file", "nen file"], exts: ["zip"] },
 ];
 
 // Marks intent: the request must ask to create/export/generate a real file,
@@ -35,10 +36,11 @@ const ACTION_WORDS = [
   "tạo", "tao", "làm", "lam", "viết", "viet", "xuất", "xuat", "export",
   "generate", "create", "make", "build", "tạo lập", "soạn", "soan",
   "chuyển thành", "chuyen thanh", "convert", "đổi sang", "doi sang", "save as",
+  "gộp", "gop", "nén", "nen", "đóng gói", "dong goi",
 ];
 
-// Explicit filename patterns: "report.docx", "baocao.xlsx", "report.pdf", "main.py"
-const FILENAME_RE = /([\p{L}\p{N}_-]{1,60})\.(docx|doc|pptx|ppt|xlsx|xls|pdf|md|markdown|csv|json|html?|txt|py)\b/giu;
+// Explicit filename patterns: "report.docx", "baocao.xlsx", "report.pdf", "main.py", "project.zip"
+const FILENAME_RE = /([\p{L}\p{N}_-]{1,60})\.(docx|doc|pptx|ppt|xlsx|xls|pdf|md|markdown|csv|json|html?|txt|py|zip)\b/giu;
 
 function stripAccents(s: string): string {
   // ponytail: diacritic fold via NFD — covers vi/đ/ơ/ư without a lookup table
@@ -95,7 +97,7 @@ export function detectArtifactIntent(message: string): ArtifactIntent {
         ({ w, plain: pw }) => lower.includes(w) || plain.includes(pw) || plain.includes(w)
       );
       if (hit) {
-        if (p.kind === "py" || !isCodeRequest) {
+        if (p.kind === "py" || p.kind === "zip" || !isCodeRequest) {
           return { kind: p.kind, fileName: null, instruction: text };
         }
       }
@@ -126,4 +128,5 @@ export const ARTIFACT_MIME: Record<ArtifactKind, string> = {
   json: "application/json; charset=utf-8",
   html: "text/html; charset=utf-8",
   py: "text/x-python; charset=utf-8",
+  zip: "application/zip",
 };

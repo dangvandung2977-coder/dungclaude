@@ -62,10 +62,29 @@ export const spreadsheetSchema = z.object({
 });
 export type SpreadsheetContent = z.infer<typeof spreadsheetSchema>;
 
+export const projectZipSchema = z.object({
+  title: z.string().default("project"),
+  description: z.string().optional(),
+  files: z.array(z.object({
+    path: z.string(),
+    content: z.string(),
+  })).min(1),
+});
+export type ProjectZipContent = z.infer<typeof projectZipSchema>;
+
 // One prompt → one JSON. The router picks the schema by artifact kind.
-export function artifactSystemPrompt(kind: "docx" | "pptx" | "xlsx" | "pdf" | "md" | "py"): string {
+export function artifactSystemPrompt(kind: "docx" | "pptx" | "xlsx" | "pdf" | "md" | "py" | "zip"): string {
   const lang = "Generate the content in the language requested by the user or matching the conversation context.";
   switch (kind) {
+    case "zip":
+      return `You are an expert multi-file software architect and full-stack engineer. ${lang}
+Output ONLY valid JSON (no markdown fences, no explanatory text) matching this schema:
+{"title": string, "description"?: string, "files": [{"path": string, "content": string}]}
+Rules:
+- Generate complete, production-ready, fully functional code files.
+- Each file must have its complete filename/path (e.g. "index.html", "style.css", "main.js", "app.py", "requirements.txt", "README.md").
+- Do not abbreviate or write placeholders like "// TODO" or "...rest of code...".
+- Accurate, clean, ready to run.`;
     case "py":
       return `You are an expert Python software engineer.
 Write clean, robust, well-documented, PEP 8 compliant Python code based on the conversation context and user request.

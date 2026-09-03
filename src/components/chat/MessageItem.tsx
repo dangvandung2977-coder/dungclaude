@@ -17,6 +17,9 @@ import {
 } from "lucide-react";
 import { Markdown } from "./Markdown";
 import { CodeBlock } from "./CodeBlock";
+import { ThinkingBlock } from "./ThinkingBlock";
+import { ProjectZipCard } from "./ProjectZipCard";
+import { parseThinking, extractCodeBlocks } from "@/lib/ai/thinking";
 import { copyText, cn } from "@/lib/utils";
 import type { Message } from "@/types";
 
@@ -31,6 +34,7 @@ const EXT_LABELS: Record<string, string> = {
   json: "JSON",
   html: "Trang web",
   py: "Mã nguồn Python",
+  zip: "Tệp nén ZIP",
 };
 
 // Extensions we can inline-preview in the modal (text-fetchable)
@@ -178,6 +182,16 @@ export const MessageItem = React.memo(function MessageItem({
   const [showTools, setShowTools] = useState(false);
   const [preview, setPreview] = useState<{ fileName: string; href: string; ext: string } | null>(null);
 
+  const isAssistant = message.role === "assistant";
+  const parsed = React.useMemo(
+    () => (isAssistant ? parseThinking(message.content || "") : { thinking: "", content: message.content || "", isThinking: false, wordCount: 0 }),
+    [isAssistant, message.content]
+  );
+  const codeFiles = React.useMemo(
+    () => (isAssistant ? extractCodeBlocks(parsed.content || "") : []),
+    [isAssistant, parsed.content]
+  );
+
   // USER MESSAGE (Claude style: right-aligned pill bubble)
   if (message.role === "user") {
     const safeParts = Array.isArray(message.parts) ? message.parts : [];
@@ -302,6 +316,7 @@ export const MessageItem = React.memo(function MessageItem({
     (p) => p && p.type === "file" && Boolean(p.fileId || p.url)
   );
 
+
   return (
     <article className="group relative py-3 select-text w-full flex items-start gap-3.5 sm:gap-4" aria-label="Câu trả lời từ Claude">
       {/* Claude Avatar Icon on the LEFT */}
@@ -355,9 +370,23 @@ export const MessageItem = React.memo(function MessageItem({
 
       {/* Content or Claude thinking state */}
       <div>
-        {message.content ? (
-          <Markdown text={message.content} streaming={Boolean(streaming)} />
-        ) : streaming ? (
+        {/* Collapsible Thinking Block ("dấu đi" by default) */}
+        {(parsed.thinking || parsed.isThinking) && (
+          <ThinkingBlock
+            thinking={parsed.thinking}
+            isThinking={Boolean(parsed.isThinking && streaming)}
+            wordCount={parsed.wordCount}
+          />
+        )}
+
+        {/* Project ZIP card if response contains multiple code files */}
+        {codeFiles.length >= 2 && !streaming && (
+          <ProjectZipCard files={codeFiles} title="project-code" />
+        )}
+
+        {parsed.content ? (
+          <Markdown text={parsed.content} streaming={Boolean(streaming)} />
+        ) : streaming && !parsed.isThinking ? (
           <div className="flex items-center gap-2 py-1 text-sm text-[#A6A49B]" aria-label="Claude đang suy nghĩ">
             <span className="inline-block h-2 w-2 rounded-full bg-[#D97757] animate-pulse" />
             <span className="italic font-serif text-[#ECEBE4]/80 tracking-wide">Claude đang suy nghĩ…</span>
@@ -461,7 +490,7 @@ export const MessageItem = React.memo(function MessageItem({
               aria-label="Sao chép câu trả lời"
               title={copied ? "Đã sao chép!" : "Sao chép câu trả lời"}
               onClick={async () => {
-                const ok = await copyText(message.content);
+                const ok = await copyText(parsed.content || message.content);
                 if (ok) {
                   setCopied(true);
                   setTimeout(() => setCopied(false), 2000);

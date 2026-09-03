@@ -79,11 +79,19 @@ async function streamSSE(res: Response, onToken: (t: string) => void): Promise<{
   const decoder = new TextDecoder();
   let buf = "";
   let text = "";
+  let inReasoning = false;
   const tools: Array<{ id: string; name: string; args: string }> = [];
   let inputTokens = 0, outputTokens = 0, cachedInputTokens = 0, cacheCreationTokens = 0;
   for (;;) {
     const { done, value } = await reader.read();
-    if (done) break;
+    if (done) {
+      if (inReasoning) {
+        inReasoning = false;
+        text += "\n</think>\n\n";
+        onToken("\n</think>\n\n");
+      }
+      break;
+    }
     buf += decoder.decode(value, { stream: true });
     const lines = buf.split("\n");
     buf = lines.pop() ?? "";
@@ -91,12 +99,40 @@ async function streamSSE(res: Response, onToken: (t: string) => void): Promise<{
       const s = line.trim();
       if (!s.startsWith("data:")) continue;
       const payload = s.slice(5).trim();
-      if (payload === "[DONE]") continue;
+      if (payload === "[DONE]") {
+        if (inReasoning) {
+          inReasoning = false;
+          text += "\n</think>\n\n";
+          onToken("\n</think>\n\n");
+        }
+        continue;
+      }
       try {
         const j = JSON.parse(payload);
         const choice = j.choices?.[0];
         const delta = choice?.delta ?? {};
-        if (typeof delta.content === "string" && delta.content) { text += delta.content; onToken(delta.content); }
+
+        // Handle reasoning_content from DeepSeek / OpenAI reasoning models
+        const reasoningChunk = delta.reasoning_content || delta.reasoning;
+        if (typeof reasoningChunk === "string" && reasoningChunk) {
+          if (!inReasoning) {
+            inReasoning = true;
+            text += "<think>\n";
+            onToken("<think>\n");
+          }
+          text += reasoningChunk;
+          onToken(reasoningChunk);
+        }
+
+        if (typeof delta.content === "string" && delta.content) {
+          if (inReasoning) {
+            inReasoning = false;
+            text += "\n</think>\n\n";
+            onToken("\n</think>\n\n");
+          }
+          text += delta.content;
+          onToken(delta.content);
+        }
         if (delta.tool_calls) {
           for (const tc of delta.tool_calls) {
             const idx = tc.index ?? 0;
@@ -213,7 +249,11 @@ async function callOpenAICompatible(opts: {
   if (!isStream || contentType.includes("application/json")) {
     const json = await res.json();
     const choice = json.choices?.[0];
-    const text = choice?.message?.content || choice?.text || "";
+    let text = choice?.message?.content || choice?.text || "";
+    const reasoning = choice?.message?.reasoning_content || choice?.message?.reasoning || "";
+    if (typeof reasoning === "string" && reasoning && !text.includes("<think>")) {
+      text = `<think>\n${reasoning.trim()}\n</think>\n\n${text}`;
+    }
     const inputTokens = json.usage?.prompt_tokens ?? 0;
     const outputTokens = json.usage?.completion_tokens ?? 0;
     const cachedInputTokens =
