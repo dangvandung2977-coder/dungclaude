@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { readSession } from "@/lib/auth/auth";
 import { getConversation, listMessages } from "@/lib/db/repos";
 import { loadCachedModels } from "@/lib/ai/models-loader";
+import { getActiveTask } from "@/lib/ai/active-tasks";
 import { ChatView } from "@/components/chat/ChatView";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +21,24 @@ export default async function ChatPage({ params }: { params: Promise<{ id: strin
 
   if (!conv) notFound();
 
-  const msgs = messages ?? [];
+  const msgs = [...(messages ?? [])];
+  const activeTask = getActiveTask(id);
+  if (activeTask && activeTask.userId === session.id && activeTask.status === "streaming") {
+    const activeMsgId = activeTask.messageId || `asst_active_${id}`;
+    if (!msgs.some((m) => m.id === activeMsgId)) {
+      msgs.push({
+        id: activeMsgId,
+        conversationId: id,
+        role: "assistant",
+        content: activeTask.text,
+        status: "streaming",
+        parts: [{ id: `part_${activeTask.startedAt}`, type: "text", text: activeTask.text }],
+        createdAt: new Date(activeTask.startedAt).toISOString(),
+        modelId: activeTask.modelId,
+      });
+    }
+  }
+
   const lastMsgWithModel = [...msgs].reverse().find((m) => m.modelId);
   const lastUsedModelId = lastMsgWithModel?.modelId || conv.modelId || null;
 

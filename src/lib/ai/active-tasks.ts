@@ -1,3 +1,5 @@
+import { EventEmitter } from "events";
+
 export interface ActiveChatTask {
   conversationId: string;
   userId: string;
@@ -9,6 +11,7 @@ export interface ActiveChatTask {
   modelId?: string;
   latencyMs?: number;
   abortController: AbortController;
+  emitter: EventEmitter;
 }
 
 // Attach to globalThis to preserve active generations across development reloads or module boundaries
@@ -37,6 +40,11 @@ export function registerActiveTask(
     }
   }
 
+  const emitter = new EventEmitter();
+  emitter.setMaxListeners(50);
+  // Default error handler so Node EventEmitter doesn't throw when no listener is attached
+  emitter.on("error", () => {});
+
   const task: ActiveChatTask = {
     conversationId,
     userId,
@@ -45,6 +53,7 @@ export function registerActiveTask(
     status: "streaming",
     modelId,
     abortController: new AbortController(),
+    emitter,
   };
 
   activeTasks.set(conversationId, task);
@@ -59,6 +68,7 @@ export function appendTaskToken(conversationId: string, delta: string): void {
   const task = activeTasks.get(conversationId);
   if (task && task.status === "streaming") {
     task.text += delta;
+    task.emitter.emit("token", delta);
   }
 }
 
@@ -72,6 +82,7 @@ export function completeActiveTask(
     task.status = "completed";
     if (messageId) task.messageId = messageId;
     if (latencyMs) task.latencyMs = latencyMs;
+    task.emitter.emit("done", { messageId, latencyMs, text: task.text });
 
     // Retain completed state for 3 minutes so disconnected clients can fetch it, then cleanup
     setTimeout(() => {
@@ -88,6 +99,7 @@ export function failActiveTask(conversationId: string, error: string): void {
   if (task) {
     task.status = "error";
     task.error = error;
+    task.emitter.emit("error", { error });
     setTimeout(() => {
       const current = activeTasks.get(conversationId);
       if (current && current.status === "error") {
@@ -102,6 +114,7 @@ export function abortActiveTask(conversationId: string, userId: string): boolean
   if (!task || task.userId !== userId) return false;
 
   task.status = "cancelled";
+  task.emitter.emit("cancelled", { text: task.text });
   try {
     task.abortController.abort();
   } catch {

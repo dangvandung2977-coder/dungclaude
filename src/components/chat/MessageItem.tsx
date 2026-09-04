@@ -525,7 +525,12 @@ export const MessageItem = React.memo(function MessageItem({
         )}
 
         {parsed.content ? (
-          <Markdown text={parsed.content} streaming={Boolean(streaming)} />
+          <div>
+            <Markdown text={parsed.content} streaming={Boolean(streaming)} />
+            {streaming && (
+              <span className="inline-block w-1.5 h-4 ml-0.5 bg-[#D97757] animate-pulse align-middle rounded-xs" title="Đang sinh câu trả lời…" />
+            )}
+          </div>
         ) : streaming && !parsed.isThinking ? (
           <div className="py-1">
             <ThinkingIndicator label="Claude đang suy nghĩ…" />

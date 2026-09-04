@@ -212,7 +212,9 @@ export function ChatView({
   };
 
   const router = useRouter();
-  const [streaming, setStreaming] = useState(false);
+  const [streaming, setStreaming] = useState(() =>
+    Array.isArray(initialMessages) && initialMessages.some((m) => m.status === "streaming")
+  );
   const [status, setStatus] = useState("");
   const safeModels = useMemo(() => (Array.isArray(models) ? models : []), [models]);
 
@@ -635,19 +637,209 @@ export function ChatView({
   const pollRecoveryRef = useRef(pollRecovery);
   pollRecoveryRef.current = pollRecovery;
 
-  // Cleanup polling timer on unmount
+  const resumeAbortRef = useRef<AbortController | null>(null);
+
+  const attachResumeStream = useCallback(
+    async (convId: string, asstId: string) => {
+      if (resumeAbortRef.current) {
+        resumeAbortRef.current.abort();
+        resumeAbortRef.current = null;
+      }
+      const ctrl = new AbortController();
+      resumeAbortRef.current = ctrl;
+
+      setIsReconnecting(true);
+      setIsStreamingLive(true);
+      setStreaming(true);
+      setStatus("");
+      isRecoveringRef.current = true;
+      isGeneratingRef.current = true;
+
+      let acc = "";
+      setMessages((prev) => {
+        const target = prev.find((m) => m.id === asstId);
+        if (target?.content) acc = target.content;
+        return prev;
+      });
+
+      let currentAsstId = asstId;
+
+      try {
+        const r = await fetch(`/api/chat/resume?conversationId=${convId}`, {
+          signal: ctrl.signal,
+        });
+
+        if (!r.ok || !r.body) {
+          pollRecovery(convId, asstId);
+          return;
+        }
+
+        const contentType = r.headers.get("content-type") || "";
+        if (contentType.includes("application/json")) {
+          const data = await r.json().catch(() => ({}));
+          if (data.status === "idle" || !data.active) {
+            setIsReconnecting(false);
+            setIsStreamingLive(false);
+            setStreaming(false);
+            isGeneratingRef.current = false;
+            isRecoveringRef.current = false;
+            return;
+          }
+        }
+
+        const reader = r.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buf += decoder.decode(value, { stream: true });
+          const events = buf.split("\n\n");
+          buf = events.pop() ?? "";
+
+          for (const ev of events) {
+            const lines = ev.split("\n");
+            let type = "";
+            let data = "";
+            for (const l of lines) {
+              if (l.startsWith("event:")) type = l.slice(6).trim();
+              else if (l.startsWith("data:")) data += l.slice(5).trim();
+            }
+            if (!data) continue;
+
+            try {
+              const j = JSON.parse(data);
+              if (type === "init") {
+                if (typeof j.text === "string" && j.text) {
+                  acc = j.text;
+                  setMessages((s) =>
+                    s.map((m) =>
+                      m.id === currentAsstId
+                        ? { ...m, content: acc, status: "streaming" as const }
+                        : m
+                    )
+                  );
+                }
+              } else if (type === "token") {
+                acc += j.delta ?? "";
+                setMessages((s) =>
+                  s.map((m) =>
+                    m.id === currentAsstId
+                      ? { ...m, content: acc, status: "streaming" as const }
+                      : m
+                  )
+                );
+                if (autoScrollRef.current && scrollRef.current) {
+                  requestAnimationFrame(() => {
+                    if (autoScrollRef.current && scrollRef.current) {
+                      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+                      lastScrollTopRef.current = scrollRef.current.scrollTop;
+                    }
+                  });
+                }
+              } else if (type === "done") {
+                const finalId = j.messageId || currentAsstId;
+                const finalContent = j.text || acc;
+                setMessages((s) => {
+                  const withoutDuplicates = s.filter(
+                    (m) => m.id === currentAsstId || m.id === finalId || !(m.role === "assistant" && m.status === "streaming")
+                  );
+                  return withoutDuplicates.map((m) =>
+                    m.id === currentAsstId || m.id === finalId
+                      ? {
+                          ...m,
+                          id: finalId,
+                          content: finalContent,
+                          status: "completed" as const,
+                          latencyMs: j.latencyMs ?? m.latencyMs,
+                        }
+                      : m
+                  );
+                });
+                setIsReconnecting(false);
+                setIsStreamingLive(false);
+                setStreaming(false);
+                isGeneratingRef.current = false;
+                isRecoveringRef.current = false;
+                toast("Đã nhận câu trả lời hoàn chỉnh từ VPS!", "success");
+              } else if (type === "error") {
+                setMessages((s) =>
+                  s.map((m) =>
+                    m.id === currentAsstId
+                      ? {
+                          ...m,
+                          content: acc ? `${acc}\n\n❌ Lỗi: ${j.error || "Không thể hoàn thành"}` : `❌ Lỗi: ${j.error || "Không thể hoàn thành"}`,
+                          status: "error" as const,
+                        }
+                      : m
+                  )
+                );
+                setIsReconnecting(false);
+                setIsStreamingLive(false);
+                setStreaming(false);
+                isGeneratingRef.current = false;
+                isRecoveringRef.current = false;
+              } else if (type === "cancelled") {
+                setMessages((s) =>
+                  s.map((m) =>
+                    m.id === currentAsstId
+                      ? { ...m, content: acc, status: "cancelled" as const }
+                      : m
+                  )
+                );
+                setIsReconnecting(false);
+                setIsStreamingLive(false);
+                setStreaming(false);
+                isGeneratingRef.current = false;
+                isRecoveringRef.current = false;
+              }
+            } catch {
+              /* ignore parse error */
+            }
+          }
+        }
+      } catch (err) {
+        if ((err as Error)?.name !== "AbortError") {
+          console.warn("[Resume Stream] Connection dropped, falling back to polling...", err);
+          pollRecovery(convId, currentAsstId);
+        }
+      }
+    },
+    [pollRecovery, toast]
+  );
+
+  const attachResumeStreamRef = useRef(attachResumeStream);
+  attachResumeStreamRef.current = attachResumeStream;
+
+  // Cleanup polling & resume stream timers on unmount
   useEffect(() => {
     return () => {
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
       }
+      if (resumeAbortRef.current) {
+        resumeAbortRef.current.abort();
+        resumeAbortRef.current = null;
+      }
     };
   }, []);
 
-  // When loading a conversation, automatically attach if VPS has an ongoing background generation
+  // When loading a conversation (e.g. reload or navigation), attach to VPS background streaming immediately!
   useEffect(() => {
     if (!activeConvId || activeConvId === "new") return;
+
+    // Check if initial SSR messages already contain a streaming assistant message
+    const initialStreaming = messages.find(
+      (m) => m.role === "assistant" && (m.status === "streaming" || m.id.startsWith("asst_active_") || m.id.startsWith("asst_bg_"))
+    );
+    if (initialStreaming) {
+      attachResumeStreamRef.current?.(activeConvId, initialStreaming.id);
+      return;
+    }
+
     if (isGeneratingRef.current || isRecoveringRef.current) return;
 
     fetch(`/api/chat/status?conversationId=${activeConvId}`)
@@ -661,7 +853,7 @@ export function ChatView({
           let targetId = data.messageId;
           setMessages((prev) => {
             const existingStreaming = prev.find(
-              (m) => m.role === "assistant" && (m.status === "streaming" || m.id.startsWith("asst_bg_") || m.id.startsWith("tmp_asst_"))
+              (m) => m.role === "assistant" && (m.status === "streaming" || m.id.startsWith("asst_bg_") || m.id.startsWith("tmp_asst_") || m.id.startsWith("asst_active_"))
             );
             if (existingStreaming) {
               targetId = existingStreaming.id;
@@ -687,7 +879,7 @@ export function ChatView({
           });
 
           if (targetId) {
-            pollRecoveryRef.current?.(activeConvId, targetId);
+            attachResumeStreamRef.current?.(activeConvId, targetId);
           }
         }
       })
@@ -943,7 +1135,7 @@ export function ChatView({
         const targetConv = activeConvIdRef.current;
         if (targetConv && targetConv !== "new") {
           isRecoveringRef.current = true;
-          void pollRecovery(targetConv, currentAsstId);
+          void attachResumeStream(targetConv, currentAsstId);
           return;
         }
 
