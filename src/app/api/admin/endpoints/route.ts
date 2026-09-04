@@ -27,7 +27,7 @@ function validHttpUrl(s: string): boolean {
 const schema = z.object({
   name: z.string().min(1, "Thiếu tên").max(80),
   baseUrl: z.string().min(1, "Thiếu base URL").max(300).refine(validHttpUrl, "Base URL phải http(s)://…"),
-  apiKey: z.string().max(1000).optional(),
+  apiKey: z.string().max(20000).optional(),
   enabled: z.boolean().optional(),
 });
 

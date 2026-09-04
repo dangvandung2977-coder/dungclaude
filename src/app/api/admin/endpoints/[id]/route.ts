@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 const schema = z.object({
   name: z.string().min(1).max(80).optional(),
   baseUrl: z.string().max(300).optional(),
-  apiKey: z.string().max(1000).optional(),
+  apiKey: z.string().max(20000).optional(),
   clearKey: z.boolean().optional(),
   enabled: z.boolean().optional(),
 });

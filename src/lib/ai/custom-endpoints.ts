@@ -3,7 +3,8 @@
 // Model id dạng custom:<endpointId>:<apiName> để AI Gateway định tuyến.
 // SERVER-ONLY (đọc api_key_enc giải mã) — chỉ dùng từ API routes.
 import { getSupabase, uid, nowIso, str, num, bool, nullableStr } from "@/lib/db/supabase";
-import { decryptSecret, encryptSecret, maskKey } from "@/lib/security/security";
+import { decryptSecret, encryptSecret } from "@/lib/security/security";
+import { parseKeyList, formatKeyHint } from "@/lib/ai/providers-config";
 import type { AIModel } from "@/types";
 
 export interface CustomEndpoint {
@@ -90,10 +91,20 @@ export async function listEndpoints(): Promise<CustomEndpoint[]> {
 
 export async function createEndpoint(input: { name: string; baseUrl: string; apiKey?: string; enabled?: boolean }): Promise<CustomEndpoint> {
   const id = uid("ce");
+  const keys = parseKeyList(input.apiKey);
+  let enc: string | null = null;
+  let hint: string | null = null;
+  if (keys.length > 1) {
+    enc = encryptSecret(JSON.stringify(keys));
+    hint = formatKeyHint(keys);
+  } else if (keys.length === 1) {
+    enc = encryptSecret(keys[0]);
+    hint = formatKeyHint(keys);
+  }
   const { data, error } = await getSupabase().from("custom_endpoints").insert({
     id, name: input.name.slice(0, 80), base_url: input.baseUrl.replace(/\/$/, ""),
-    api_key_enc: input.apiKey ? encryptSecret(input.apiKey) : null,
-    api_key_hint: input.apiKey ? maskKey(input.apiKey) : null,
+    api_key_enc: enc,
+    api_key_hint: hint,
     enabled: input.enabled ?? true, updated_at: nowIso(),
   }).select("*").single();
   if (error) throw new Error(error.message);
@@ -109,8 +120,17 @@ export async function updateEndpoint(id: string, patch: { name?: string; baseUrl
   let hint = nullableStr(c.api_key_hint);
   if (patch.clearKey) { enc = null; hint = null; }
   else if (typeof patch.apiKey === "string" && patch.apiKey.length > 0) {
-    enc = encryptSecret(patch.apiKey);
-    hint = maskKey(patch.apiKey);
+    const keys = parseKeyList(patch.apiKey);
+    if (keys.length > 1) {
+      enc = encryptSecret(JSON.stringify(keys));
+      hint = formatKeyHint(keys);
+    } else if (keys.length === 1) {
+      enc = encryptSecret(keys[0]);
+      hint = formatKeyHint(keys);
+    } else {
+      enc = null;
+      hint = null;
+    }
   }
   const upd: Record<string, unknown> = { updated_at: nowIso() };
   if (patch.name !== undefined) upd.name = patch.name.slice(0, 80);
@@ -130,16 +150,20 @@ export async function deleteEndpoint(id: string): Promise<void> {
   // custom_models cascade theo FK.
 }
 
-export async function getEndpointCredentials(endpointId: string): Promise<{ baseUrl: string; key: string; enabled: boolean; name: string } | null> {
+export async function getEndpointCredentials(endpointId: string): Promise<{ baseUrl: string; key: string; keys: string[]; enabled: boolean; name: string } | null> {
   const { data } = await getSupabase().from("custom_endpoints").select("*").eq("id", endpointId).maybeSingle();
   if (!data) return null;
   const r = data as Record<string, unknown>;
   const enc = nullableStr(r.api_key_enc);
-  let key = "";
+  let keys: string[] = [];
   if (enc) {
-    try { key = decryptSecret(enc); } catch { key = ""; }
+    try {
+      const decrypted = decryptSecret(enc);
+      keys = parseKeyList(decrypted);
+    } catch { keys = []; }
   }
-  return { baseUrl: str(r.base_url), key, enabled: bool(r.enabled), name: str(r.name) };
+  const key = keys[0] ?? "";
+  return { baseUrl: str(r.base_url), key, keys, enabled: bool(r.enabled), name: str(r.name) };
 }
 
 // ── Models ──

@@ -17,7 +17,7 @@ const schema = z.object({
   provider: z.enum(["openai", "anthropic", "gemini", "openrouter"]),
   enabled: z.boolean().optional(),
   baseUrl: z.string().max(300).nullable().optional(),
-  apiKey: z.string().max(500).optional(), // empty/omitted = keep existing
+  apiKey: z.string().max(20000).optional(), // empty/omitted = keep existing; can contain multiple keys
   clearKey: z.boolean().optional(),
 });
 

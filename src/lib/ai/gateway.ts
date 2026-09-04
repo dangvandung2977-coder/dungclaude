@@ -1,6 +1,6 @@
 import { config } from "@/lib/config";
 import { modelNameOf, providerOf, parseModelRef, estimateTokens } from "./registry";
-import { getProviderApiKey, getProviderConfig } from "./providers-config";
+import { getProviderApiKey, getProviderApiKeys, getProviderConfig } from "./providers-config";
 import { getEndpointCredentials } from "./custom-endpoints";
 import { isStreamingSupported, markStreamingUnsupported, isUpstreamUnsupportedError } from "./streaming-capabilities";
 
@@ -577,6 +577,11 @@ function formatFriendlyGatewayError(modelId: string, err: unknown): string {
   return `Lỗi phản hồi từ mô hình "${modelId}": ${msg}`;
 }
 
+function isKeyRetryableError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  return /429|quota|rate limit|too many requests|resource has been exhausted|403|forbidden|unauthorized|401/i.test(msg);
+}
+
 export async function runGateway(opts: {
   modelId: string; messages: GatewayMessage[]; system?: string;
   stableSystemPrefix?: string; // stable prefix of system for provider prompt caching
@@ -596,6 +601,7 @@ export async function runGateway(opts: {
       const r = await callDemo(opts.modelId, opts.messages, opts.cb);
       return { ...r, cachedInputTokens: 0, cacheCreationTokens: 0, provider: "demo", model: opts.modelId };
     }
+
     // Custom endpoint riêng (admin thêm nhiều endpoint tại /admin/endpoints)
     if (p === "custom") {
       const ref = parseModelRef(opts.modelId);
@@ -603,21 +609,36 @@ export async function runGateway(opts: {
       const cred = await getEndpointCredentials(ref.endpointId);
       if (!cred) throw new Error("Endpoint không tồn tại (admin: /admin/endpoints)");
       if (!cred.enabled) throw new Error(`Endpoint "${cred.name}" đang tắt (admin bật tại /admin/endpoints)`);
-      if (!cred.key) throw new Error(`Endpoint "${cred.name}" chưa có API key`);
+      const keyPool = cred.keys && cred.keys.length > 0 ? cred.keys : (cred.key ? [cred.key] : []);
+      if (!keyPool.length) throw new Error(`Endpoint "${cred.name}" chưa có API key`);
       // Fast timeout for custom endpoints (12s max) to prevent long hangs on dead servers
       const customTimeout = Math.min(config.ai.timeoutMs, 12000);
-      const first = await callOpenAICompatible({
-        baseUrl: cred.baseUrl, apiKey: cred.key, model: ref.model,
-        messages: [...(opts.system ? [{ role: "system" as const, content: opts.system }] : []), ...opts.messages],
-        tools, cb: opts.cb, timeoutMs: customTimeout, maxTokens: opts.maxTokens,
-        capabilities: opts.capabilities,
-        supportsStreaming: opts.supportsStreaming,
-      });
-      return await finalizeToolLoop(first, p, opts);
+      let lastKeyErr: unknown = null;
+      for (let i = 0; i < keyPool.length; i++) {
+        const activeKey = keyPool[i];
+        try {
+          const first = await callOpenAICompatible({
+            baseUrl: cred.baseUrl, apiKey: activeKey, model: ref.model,
+            messages: [...(opts.system ? [{ role: "system" as const, content: opts.system }] : []), ...opts.messages],
+            tools, cb: opts.cb, timeoutMs: customTimeout, maxTokens: opts.maxTokens,
+            capabilities: opts.capabilities,
+            supportsStreaming: opts.supportsStreaming,
+          });
+          return await finalizeToolLoop(first, p, opts);
+        } catch (err) {
+          lastKeyErr = err;
+          if (i < keyPool.length - 1 && isKeyRetryableError(err)) {
+            console.warn(`[AI Gateway] Custom endpoint "${cred.name}" key #${i + 1} gặp lỗi: ${err instanceof Error ? err.message : String(err)}. Tự động chuyển sang key #${i + 2}/${keyPool.length}...`);
+            continue;
+          }
+          throw err;
+        }
+      }
+      throw lastKeyErr;
     }
     const cfg = await getProviderConfig(p);
-    const key = await getProviderApiKey(p);
-    if (!cfg.enabled || !key) throw new Error(`Provider ${p} chưa được cấu hình (admin: /admin)`);
+    const keyPool = await getProviderApiKeys(p);
+    if (!cfg.enabled || !keyPool.length) throw new Error(`Provider ${p} chưa được cấu hình (admin: /admin)`);
     const sysMsg: GatewayMessage[] = opts.system ? [{ role: "system", content: opts.system }] : [];
     const all = [...sysMsg, ...opts.messages];
 
@@ -630,25 +651,39 @@ export async function runGateway(opts: {
       : p === "openrouter" ? "google/gemini-2.5-flash"
       : model;
 
-    if (p === "anthropic") {
-      const r = await callAnthropic({ apiKey: key, model: providerModel, messages: all, system: opts.system, stableSystemPrefix: opts.stableSystemPrefix, tools, cb: opts.cb, timeoutMs: config.ai.timeoutMs, maxTokens: opts.maxTokens });
-      return await finalizeToolLoop(r, p, opts);
+    let lastKeyErr: unknown = null;
+    for (let i = 0; i < keyPool.length; i++) {
+      const activeKey = keyPool[i];
+      try {
+        if (p === "anthropic") {
+          const r = await callAnthropic({ apiKey: activeKey, model: providerModel, messages: all, system: opts.system, stableSystemPrefix: opts.stableSystemPrefix, tools, cb: opts.cb, timeoutMs: config.ai.timeoutMs, maxTokens: opts.maxTokens });
+          return await finalizeToolLoop(r, p, opts);
+        }
+        if (p === "gemini") {
+          const r = await callGemini({ apiKey: activeKey, model: providerModel, messages: all, system: opts.system, cb: opts.cb, timeoutMs: config.ai.timeoutMs, maxTokens: opts.maxTokens });
+          return { ...r, toolCalls: [], provider: p, model: opts.modelId };
+        }
+        // openai / openrouter are OpenAI-compatible
+        const base = p === "openai" ? (cfg.baseUrl ?? "https://api.openai.com/v1")
+          : p === "openrouter" ? (cfg.baseUrl ?? "https://openrouter.ai/api/v1")
+          : (cfg.baseUrl || "https://api.openai.com/v1");
+        const first = await callOpenAICompatible({
+          baseUrl: base, apiKey: activeKey, model: providerModel, messages: all, tools, cb: opts.cb,
+          timeoutMs: config.ai.timeoutMs, maxTokens: opts.maxTokens,
+          capabilities: opts.capabilities,
+          supportsStreaming: opts.supportsStreaming,
+        });
+        return await finalizeToolLoop(first, p, opts);
+      } catch (err) {
+        lastKeyErr = err;
+        if (i < keyPool.length - 1 && isKeyRetryableError(err)) {
+          console.warn(`[AI Gateway] Provider "${p}" key #${i + 1} gặp lỗi: ${err instanceof Error ? err.message : String(err)}. Tự động chuyển sang key #${i + 2}/${keyPool.length}...`);
+          continue;
+        }
+        throw err;
+      }
     }
-    if (p === "gemini") {
-      const r = await callGemini({ apiKey: key, model: providerModel, messages: all, system: opts.system, cb: opts.cb, timeoutMs: config.ai.timeoutMs, maxTokens: opts.maxTokens });
-      return { ...r, toolCalls: [], provider: p, model: opts.modelId };
-    }
-    // openai / openrouter are OpenAI-compatible
-    const base = p === "openai" ? (cfg.baseUrl ?? "https://api.openai.com/v1")
-      : p === "openrouter" ? (cfg.baseUrl ?? "https://openrouter.ai/api/v1")
-      : (cfg.baseUrl || "https://api.openai.com/v1");
-    const first = await callOpenAICompatible({
-      baseUrl: base, apiKey: key, model: providerModel, messages: all, tools, cb: opts.cb,
-      timeoutMs: config.ai.timeoutMs, maxTokens: opts.maxTokens,
-      capabilities: opts.capabilities,
-      supportsStreaming: opts.supportsStreaming,
-    });
-    return await finalizeToolLoop(first, p, opts);
+    throw lastKeyErr;
   };
 
   // If user explicitly chose demo, run demo directly

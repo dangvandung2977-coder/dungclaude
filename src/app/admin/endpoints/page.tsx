@@ -209,13 +209,28 @@ export default function AdminEndpointsPage() {
           <label className="text-xs muted">Base URL (chuẩn OpenAI) *
             <Input className="mt-1 font-mono" placeholder="http://localhost:11434/v1" value={epUrl} onChange={(e) => setEpUrl(e.target.value)} />
           </label>
-          <label className="text-xs muted">API key {editingEp?.hasKey && <span className="font-mono">({editingEp.keyHint} — để trống để giữ)</span>}
-            <div className="relative">
-              <Input type={showKey ? "text" : "password"} className="mt-1 font-mono pr-9" placeholder={editingEp?.hasKey ? "•••••• (nhập mới để thay)" : "sk-… (có thể để trống nếu server không cần)"} value={epKey} onChange={(e) => setEpKey(e.target.value)} />
-              <button aria-label="Hiện/ẩn key" className="absolute right-2 top-1/2 -translate-y-1/2 faint cursor-pointer" onClick={() => setShowKey((s) => !s)}>
+          <label className="text-xs muted">API key {editingEp?.hasKey && <span className="font-mono text-[#D97757]">({editingEp.keyHint} — để trống để giữ)</span>}
+            <div className="relative mt-1">
+              <textarea
+                rows={showKey ? 3 : 2}
+                className="w-full rounded-lg border border-white/10 bg-black/20 p-2 text-xs font-mono outline-none focus:border-[#D97757]/50 resize-y"
+                placeholder={editingEp?.hasKey ? "•••••• (dán 1 hoặc nhiều key mới để thay, mỗi dòng 1 key)" : "Dán API key (mỗi dòng 1 key hoặc cách nhau dấu phẩy)…"}
+                value={epKey}
+                onChange={(e) => setEpKey(e.target.value)}
+                style={!showKey && epKey.length > 0 ? { WebkitTextSecurity: "disc" } as React.CSSProperties : undefined}
+              />
+              <button
+                type="button"
+                aria-label="Hiện/ẩn key"
+                className="absolute right-2 top-2 text-[#75736C] hover:text-white cursor-pointer"
+                onClick={() => setShowKey((s) => !s)}
+              >
                 {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
               </button>
             </div>
+            <span className="text-[10px] text-[#75736C] mt-1 block">
+              💡 Hỗ trợ nhiều key: tự động đổi sang key tiếp theo khi gặp lỗi Rate Limit (429) hoặc 403.
+            </span>
           </label>
           <Button onClick={saveEndpoint}>{editingEp ? "Lưu" : "Thêm endpoint"}</Button>
           <p className="text-[11px] faint">Xong bước này → thêm model (api_name đúng tên phía server) → <Link href="/admin/models" className="underline">gán vào chức năng</Link>.</p>

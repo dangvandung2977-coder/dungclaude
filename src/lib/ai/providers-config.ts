@@ -81,12 +81,47 @@ export async function getProviderConfig(provider: string): Promise<ProviderConfi
   };
 }
 
-export async function getProviderApiKey(provider: string): Promise<string> {
+export function parseKeyList(raw: string | string[] | null | undefined): string[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) {
+    return Array.from(new Set(raw.map((k) => k.trim()).filter(Boolean)));
+  }
+  const trimmed = raw.trim();
+  if (!trimmed) return [];
+  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return Array.from(new Set(parsed.map((k) => String(k).trim()).filter(Boolean)));
+      }
+    } catch { /* not json */ }
+  }
+  const parts = trimmed.split(/[\r\n,]+/);
+  return Array.from(new Set(parts.map((k) => k.trim()).filter(Boolean)));
+}
+
+export function formatKeyHint(keys: string[]): string | null {
+  if (!keys.length) return null;
+  if (keys.length === 1) return maskKey(keys[0]);
+  return `${maskKey(keys[0])} (+${keys.length - 1} key${keys.length > 2 ? "s" : ""})`;
+}
+
+export async function getProviderApiKeys(provider: string): Promise<string[]> {
   const row = await readRow(provider);
   if (row?.api_key_enc) {
-    try { return decryptSecret(row.api_key_enc); } catch { return ""; }
+    try {
+      const decrypted = decryptSecret(row.api_key_enc);
+      const parsed = parseKeyList(decrypted);
+      if (parsed.length > 0) return parsed;
+    } catch { /* decrypt failed */ }
   }
-  return envEntry(provider).key ?? "";
+  const envRaw = envEntry(provider).key ?? "";
+  return parseKeyList(envRaw);
+}
+
+export async function getProviderApiKey(provider: string): Promise<string> {
+  const keys = await getProviderApiKeys(provider);
+  return keys[0] ?? "";
 }
 
 export async function listProviderConfigs(): Promise<ProviderConfig[]> {
@@ -101,8 +136,17 @@ export async function setProviderConfig(provider: string, patch: { enabled?: boo
   let hint: string | null = cur?.api_key_hint ?? null;
   if (patch.clearKey) { enc = null; hint = null; }
   else if (typeof patch.apiKey === "string" && patch.apiKey.length > 0) {
-    enc = encryptSecret(patch.apiKey);
-    hint = maskKey(patch.apiKey);
+    const keys = parseKeyList(patch.apiKey);
+    if (keys.length > 1) {
+      enc = encryptSecret(JSON.stringify(keys));
+      hint = formatKeyHint(keys);
+    } else if (keys.length === 1) {
+      enc = encryptSecret(keys[0]);
+      hint = formatKeyHint(keys);
+    } else {
+      enc = null;
+      hint = null;
+    }
   }
   const enabled = patch.enabled ?? cur?.enabled ?? false;
   const baseUrl = patch.baseUrl !== undefined ? patch.baseUrl : (cur?.base_url ?? null);
