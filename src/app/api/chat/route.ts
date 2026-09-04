@@ -109,12 +109,10 @@ export async function POST(req: Request): Promise<Response> {
   ]);
 
   const userMode = parseUserMode(body.optimizationMode) ?? effectiveSettings.mode;
-  const [quota, budget] = await Promise.all([
+  await Promise.all([
     checkUserQuota(user.id, effectiveSettings).catch(() => null),
     user.role === "admin" ? Promise.resolve(null) : checkCostBudget(effectiveSettings).catch(() => null),
   ]);
-  if (quota && !quota.ok) return fail(quota.message ?? "Đã đạt giới hạn sử dụng.", 429);
-  if (budget && budget.level === "limit") return fail(budget.message ?? "Đã vượt ngân sách ngày.", 429);
 
   const history = await listMessages(conv.id, 50);
   const baseSystem = `You are DungClaude, an expert AI assistant and practical coding agent. Respond in the user's preferred language (Vietnamese if the user writes in Vietnamese, English if in English).
@@ -167,7 +165,7 @@ When asked to write software, build projects, or produce code:
       system: optimized.system,
       stableSystemPrefix: optimized.stableSystemPrefix,
       tools: [],
-      maxTokens: optimized.outputLimit,
+      maxTokens: undefined,
       supportsStreaming: false, // Explicitly non-streaming request
       capabilities: modelMeta?.capabilities,
       cb: {

@@ -128,15 +128,12 @@ export async function POST(req: Request): Promise<Response> {
     );
 
   const settings = await settingsPromise;
-  // ── Quota + cost budget gates (before any provider call) ──
+  // ── Quota + cost budget gates (telemetry only — no artificial limits) ──
   if (settings) {
-    const [quota, budget] = await Promise.all([
+    await Promise.all([
       checkUserQuota(user.id, settings).catch(() => null),
       user.role === "admin" ? Promise.resolve(null) : checkCostBudget(settings).catch(() => null),
     ]);
-    if (quota && !quota.ok) return fail(quota.message ?? "Đã đạt giới hạn sử dụng.", 429);
-    // Budget limit: non-admin blocked; admins get a warning but proceed.
-    if (budget && budget.level === "limit") return fail(budget.message ?? "Đã vượt ngân sách ngày.", 429);
   }
   const effectiveSettings = settings ?? {
     mode: "balanced" as const,
@@ -332,7 +329,7 @@ When asked to write software, build projects, or produce code:
           system: optimized.system,
           stableSystemPrefix: optimized.stableSystemPrefix,
           tools: enabledTools,
-          maxTokens: optimized.outputLimit,
+          maxTokens: undefined,
           supportsStreaming,
           capabilities: modelMeta?.capabilities,
           reasoningEffort: body.reasoningEffort,

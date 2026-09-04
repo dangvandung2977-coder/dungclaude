@@ -186,7 +186,8 @@ async function callOpenAICompatible(opts: {
   const buildBody = (streamMode: boolean, modelName: string) => {
     const body: Record<string, unknown> = {
       model: modelName,
-      max_tokens: opts.maxTokens ? Math.max(opts.maxTokens, 8192) : undefined,
+      // No artificial output token limit — allow model to generate up to full native capacity
+      ...(opts.maxTokens ? { max_tokens: Math.max(opts.maxTokens, 64000) } : {}),
       messages: opts.messages.map((m) => ({
         role: m.role,
         content: m.attachments?.length ? toOpenAIContent(m.content, m.attachments) : m.content,
@@ -378,7 +379,7 @@ async function callAnthropic(opts: {
 
   const isThinkingModel = /claude-3-7|thinking/i.test(opts.model);
   let thinkingConfig: { type: "enabled"; budget_tokens: number } | undefined;
-  let maxTokens = Math.max(1024, Math.min(opts.maxTokens ?? 16384, 64000));
+  let maxTokens = 64000;
   if (isThinkingModel && opts.reasoningEffort) {
     const budget = opts.reasoningEffort === "low" ? 2048 : opts.reasoningEffort === "medium" ? 8192 : 16384;
     thinkingConfig = { type: "enabled", budget_tokens: budget };
@@ -480,7 +481,7 @@ async function callGemini(opts: { apiKey: string; model: string; messages: Gatew
         // stable-first ordering (from prompt-cache) maximizes cache hits.
         body: JSON.stringify({
           systemInstruction: opts.system ? { parts: [{ text: opts.system }] } : undefined,
-          ...(opts.maxTokens ? { generationConfig: { maxOutputTokens: Math.max(opts.maxTokens, 8192) } } : {}),
+          generationConfig: { maxOutputTokens: 65536 },
           contents,
         }),
         signal: ctrl.signal,

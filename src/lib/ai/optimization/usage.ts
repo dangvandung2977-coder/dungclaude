@@ -87,31 +87,13 @@ function startOfMonthIso(): string {
   return d.toISOString();
 }
 
-// ── Quota Manager (per-user) ──
-export async function checkUserQuota(userId: string, s: OptimizationSettings): Promise<UserQuotaState> {
-  const sb = getSupabase();
-  const today = startOfTodayIso();
-  const month = startOfMonthIso();
-  const [dayReq, dayTok, monTok] = await Promise.all([
-    sb.from("usage_events").select("cost_usd", { count: "exact", head: true }).eq("user_id", userId).gte("created_at", today),
-    sb.from("usage_events").select("total_tokens", { count: "exact", head: false }).eq("user_id", userId).gte("created_at", today).limit(10000),
-    sb.from("usage_events").select("total_tokens", { count: "exact", head: false }).eq("user_id", userId).gte("created_at", month).limit(50000),
-  ]);
-  const dailyRequests = dayReq.count ?? 0;
-  const dailyTokens = ((dayTok.data ?? []) as Row[]).reduce((a, r) => a + num(r.total_tokens), 0);
-  const monthlyTokens = ((monTok.data ?? []) as Row[]).reduce((a, r) => a + num(r.total_tokens), 0);
-
-  const issues: string[] = [];
-  const q = s.quotas;
-  if (dailyRequests >= q.dailyRequestsPerUser) issues.push(`Đã đạt giới hạn ${q.dailyRequestsPerUser} yêu cầu/ngày`);
-  if (dailyTokens >= q.dailyTokensPerUser) issues.push(`Đã đạt giới hạn ${q.dailyTokensPerUser.toLocaleString()} tokens/ngày`);
-  if (monthlyTokens >= q.monthlyTokensPerUser) issues.push(`Đã đạt giới hạn tokens/tháng`);
+// ── Quota Manager (per-user) — unlimited tokens ──
+export async function checkUserQuota(_userId: string, _s: OptimizationSettings): Promise<UserQuotaState> {
   return {
-    ok: issues.length === 0,
-    dailyRequests: { used: dailyRequests, limit: q.dailyRequestsPerUser },
-    dailyTokens: { used: dailyTokens, limit: q.dailyTokensPerUser },
-    monthlyTokens: { used: monthlyTokens, limit: q.monthlyTokensPerUser },
-    message: issues[0],
+    ok: true,
+    dailyRequests: { used: 0, limit: Infinity },
+    dailyTokens: { used: 0, limit: Infinity },
+    monthlyTokens: { used: 0, limit: Infinity },
   };
 }
 
