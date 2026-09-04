@@ -14,11 +14,13 @@ import {
   Film,
   ChevronRight,
   FolderKanban,
+  Brain,
 } from "lucide-react";
 import { formatBytes, cn } from "@/lib/utils";
 import { useToast, ConfirmModal } from "@/components/ui/primitives";
+import { MemoryManager } from "@/components/memory/MemoryManager";
 
-type ProjectTab = "chats" | "knowledge" | "instructions";
+type ProjectTab = "chats" | "knowledge" | "memory" | "instructions";
 
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -191,6 +193,20 @@ export default function ProjectDetailPage() {
 
           <button
             type="button"
+            onClick={() => setActiveTab("memory")}
+            className={cn(
+              "px-4 py-2 text-xs font-medium border-b-2 -mb-px transition-colors cursor-pointer flex items-center gap-2",
+              activeTab === "memory"
+                ? "border-[#D97757] text-[#ECEBE4]"
+                : "border-transparent text-[#75736C] hover:text-[#ECEBE4]"
+            )}
+          >
+            <Brain size={13} />
+            <span>Project Memory</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setActiveTab("instructions")}
             className={cn(
               "px-4 py-2 text-xs font-medium border-b-2 -mb-px transition-colors cursor-pointer flex items-center gap-2",
@@ -300,7 +316,19 @@ export default function ProjectDetailPage() {
           </div>
         )}
 
-        {/* TAB 3: CUSTOM INSTRUCTIONS */}
+        {/* TAB 3: PROJECT MEMORY */}
+        {activeTab === "memory" && (
+          <div className="animate-in fade-in duration-100">
+            <MemoryManager
+              projectId={id as string}
+              scope="project"
+              title={`Bộ nhớ dự án: ${project.name}`}
+              description="Các kiến trúc, quy tắc kỹ thuật, công nghệ và quyết định quan trọng của dự án được AI ghi nhớ tự động và cách ly hoàn toàn với các dự án khác."
+            />
+          </div>
+        )}
+
+        {/* TAB 4: CUSTOM INSTRUCTIONS */}
         {activeTab === "instructions" && (
           <div className="p-6 rounded-2xl bg-[#262523] border border-white/[0.08] space-y-4">
             <div>

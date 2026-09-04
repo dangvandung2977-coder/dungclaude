@@ -18,6 +18,7 @@ import { getOptimizationSettings, parseUserMode } from "@/lib/ai/optimization/se
 import { optimizeContext } from "@/lib/ai/optimization/optimize";
 import { calculateCost, checkUserQuota, checkCostBudget, recordOptimizedUsage, recordFallbackEvent } from "@/lib/ai/optimization/usage";
 import { maybeSummarize, embedPendingMessages, pickSummarizationModel, generateTitle } from "@/lib/ai/optimization/summarizer";
+import { extractAndStoreMemories } from "@/lib/ai/memory/extractor";
 import { detectArtifactIntent } from "@/lib/artifacts/intent";
 import { generateArtifact } from "@/lib/artifacts/pipeline";
 
@@ -403,6 +404,17 @@ When asked to write software, build projects, or produce code:
               messages: msgs,
             });
             await embedPendingMessages(conv.id, user.id);
+
+            // Persistent AI Memory: Background fact extraction, deduplication & consolidation
+            await extractAndStoreMemories({
+              userId: user.id,
+              projectId: conv.projectId ?? body.projectId ?? undefined,
+              conversationId: conv.id,
+              userMessage: body.content,
+              assistantMessage: full,
+              explicitDecision: optimized.memoryDecision,
+              availableModels,
+            });
           } catch { /* background best-effort */ }
         })();
 
@@ -422,6 +434,7 @@ When asked to write software, build projects, or produce code:
           tokensSaved: optimized.result.tokensSaved,
           ragChunks: optimized.result.ragChunksUsed,
           summaryUsed: optimized.result.summaryUsed,
+          memoriesUsed: optimized.memoriesUsed ?? 0,
           estimatedCostUsd: optimized.routing.estimatedCostUsd,
           alternativeModelId: optimized.routing.alternativeModelId,
           latencyMs: Date.now() - started,

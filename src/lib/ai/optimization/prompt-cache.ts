@@ -9,8 +9,10 @@ export interface ContextParts {
   baseSystem: string;      // stable: core assistant instructions
   userSystemPrompt: string; // stable-ish: custom system prompt for this conv
   projectInstructions: string; // stable: project instructions
+  userMemory?: string;     // stable: global user profile/preferences
+  projectMemory?: string;  // stable: persistent project facts/architecture
   summary: string;         // dynamic: conversation summary
-  semanticMemory: string;  // dynamic: retrieved old messages
+  semanticMemory: string;  // dynamic: retrieved old messages and cross-chat memory
   ragContext: string;      // dynamic: retrieved file chunks
 }
 
@@ -20,11 +22,13 @@ export function buildCachedSystem(parts: ContextParts, s: OptimizationSettings):
   if (parts.baseSystem) stable.push(parts.baseSystem);
   if (parts.userSystemPrompt) stable.push(parts.userSystemPrompt);
   if (parts.projectInstructions) stable.push(parts.projectInstructions);
+  if (parts.userMemory) stable.push(parts.userMemory);
+  if (parts.projectMemory) stable.push(parts.projectMemory);
   const stablePrefix = stable.join("\n\n");
 
   const dynamic: string[] = [];
   if (parts.summary) dynamic.push(`[Summary of previous conversation — key context, condensed:\n${parts.summary}\n]`);
-  if (parts.semanticMemory) dynamic.push(`[Relevant excerpts from conversation history:\n${parts.semanticMemory}\n]`);
+  if (parts.semanticMemory) dynamic.push(`[Relevant context from previous conversations & memory:\n${parts.semanticMemory}\n]`);
   if (parts.ragContext) dynamic.push(parts.ragContext);
   const dynamicSuffix = dynamic.join("\n\n");
 

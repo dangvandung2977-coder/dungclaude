@@ -16,12 +16,14 @@ import {
   Check,
   AlertTriangle,
   Key,
+  Brain,
 } from "lucide-react";
 import { Button, Modal, useToast } from "@/components/ui/primitives";
 import { useSession } from "@/hooks/useSession";
 import { cn } from "@/lib/utils";
+import { MemoryManager } from "@/components/memory/MemoryManager";
 
-type SettingsTab = "general" | "appearance" | "models" | "privacy";
+type SettingsTab = "general" | "appearance" | "models" | "memory" | "privacy";
 
 export default function SettingsPage() {
   const { theme, setTheme } = useTheme();
@@ -57,6 +59,7 @@ export default function SettingsPage() {
     { id: "general", label: "Tài khoản & Hồ sơ", icon: <User size={15} /> },
     { id: "appearance", label: "Giao diện hiển thị", icon: <Sun size={15} /> },
     { id: "models", label: "Mô hình AI & Hệ thống", icon: <Cpu size={15} /> },
+    { id: "memory", label: "Bộ nhớ AI (Memory)", icon: <Brain size={15} /> },
     { id: "privacy", label: "Dữ liệu & Quyền riêng tư", icon: <Shield size={15} /> },
   ];
 
@@ -269,6 +272,16 @@ export default function SettingsPage() {
                     )}
                   </div>
                 </section>
+              </div>
+            )}
+
+            {/* MEMORY TAB */}
+            {activeTab === "memory" && (
+              <div className="animate-in fade-in duration-100">
+                <MemoryManager
+                  title="Bộ nhớ AI cá nhân & Toàn cục"
+                  description="Các thông tin, sở thích code, quy chuẩn và kiến thức được AI ghi nhớ tự động hoặc thủ công để phục vụ các cuộc trò chuyện."
+                />
               </div>
             )}
 

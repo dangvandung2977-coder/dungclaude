@@ -1,7 +1,6 @@
-// Optimization Engine orchestrator — the single entry point the chat route
-// calls. Everything provider-independent happens here, before runGateway.
 import type { AIModel, Message } from "@/types";
 import type { OptimizationSettings, OptimizationMode, ResponseLength, OptimizationResult } from "@/types/optimization";
+import type { MemoryRoutingDecision } from "@/types/memory";
 import type { GatewayMessage } from "@/lib/ai/gateway";
 import { estimateTokens } from "@/lib/ai/registry";
 import { retrieve, buildRagContext } from "@/lib/rag/retriever";
@@ -13,6 +12,9 @@ import {
 import { buildCachedSystem } from "./prompt-cache";
 import { getSummary, searchMessageMemory } from "./summarizer";
 import { classifyTask, routeModel, estimateOutputTokens } from "./router";
+import { routeMemory } from "@/lib/ai/memory/router";
+import { listMemories, searchMemories } from "@/lib/db/memory-repo";
+import { getEmbedding } from "@/lib/ai/memory/embeddings";
 
 export interface OptimizeInput {
   user: { id: string };
@@ -37,6 +39,8 @@ export interface OptimizeOutput {
   stableSystemPrefix: string;
   messages: GatewayMessage[];
   outputLimit: number;
+  memoryDecision?: MemoryRoutingDecision;
+  memoriesUsed?: number;
 }
 
 // Rough tool-definition cost in tokens (3 tools ≈ this)
@@ -80,25 +84,71 @@ export async function optimizeContext(input: OptimizeInput): Promise<OptimizeOut
     ragChunksUsed = filtered.length;
   }
 
-  // 5. Conversation summary + semantic memory (only when tier needs it)
-  let summaryText = "";
-  let semanticMemory = "";
-  if (tier === "summary" || tier === "aggressive") {
-    const s = await getSummary(input.conversationId).catch(() => null);
-    if (s?.content) summaryText = s.content;
+  // 5. Memory Routing & Hierarchical Retrieval (Global + Project + Semantic + Summary)
+  const memDecision = routeMemory({
+    message: input.currentMessage,
+    projectId: input.projectId,
+    historyLength: historyMsgs.length,
+  });
+
+  const [globalMemories, projectMemories, semanticMemories, summaryObj] = await Promise.all([
+    memDecision.needGlobalUserMemory
+      ? listMemories({ userId: input.user.id, scope: "global", status: "current", limit: 5 }).catch(() => [])
+      : Promise.resolve([]),
+    memDecision.needProjectMemory && input.projectId
+      ? listMemories({ userId: input.user.id, projectId: input.projectId, scope: "project", status: "current", limit: 8 }).catch(() => [])
+      : Promise.resolve([]),
+    memDecision.needSemanticSearch
+      ? (async () => {
+          const emb = await getEmbedding(input.currentMessage).catch(() => null);
+          return await searchMemories({
+            userId: input.user.id,
+            projectId: input.projectId,
+            query: input.currentMessage,
+            queryEmbedding: emb,
+            limit: 4,
+          }).catch(() => []);
+        })()
+      : Promise.resolve([]),
+    (tier === "summary" || tier === "aggressive" || memDecision.needConversationSummary)
+      ? getSummary(input.conversationId).catch(() => null)
+      : Promise.resolve(null),
+  ]);
+
+  const summaryText = summaryObj?.content ?? "";
+  let userMemoryText = "";
+  if (globalMemories.length > 0) {
+    userMemoryText = `[User Profile & Preferences]:\n${globalMemories.map((m) => `• ${m.content}`).join("\n")}`;
   }
-  if (tier === "aggressive" || (tier === "summary" && historyTokens > settings.contextThresholds.aggressiveTokens * 0.5)) {
+
+  let projectMemoryText = "";
+  if (projectMemories.length > 0) {
+    projectMemoryText = `[Project Architecture & Constraints]:\n${projectMemories.map((m) => `• [${m.category.toUpperCase()}] ${m.content}`).join("\n")}`;
+  }
+
+  // Deduplicate semantic memories from project memories
+  const existingMemoryIds = new Set([...globalMemories.map((m) => m.id), ...projectMemories.map((m) => m.id)]);
+  const uniqueSemantic = semanticMemories.filter((m) => !existingMemoryIds.has(m.id));
+
+  let semanticMemory = "";
+  if (uniqueSemantic.length > 0) {
+    semanticMemory = uniqueSemantic.map((m) => `• ${m.content}`).join("\n");
+  } else if (tier === "aggressive" || (tier === "summary" && historyTokens > settings.contextThresholds.aggressiveTokens * 0.5)) {
     const mem = await searchMessageMemory(input.user.id, input.conversationId, input.currentMessage, 4).catch(() => []);
     if (mem.length) {
       semanticMemory = mem.slice(0, 4).map((x, i) => `[${i + 1}] ${x.content.slice(0, 800)}`).join("\n");
     }
   }
 
+  const memoriesUsed = globalMemories.length + projectMemories.length + uniqueSemantic.length;
+
   // 6. Build cached system (stable first, dynamic after)
   const { system, stablePrefix } = buildCachedSystem({
     baseSystem: input.system.base,
     userSystemPrompt: input.system.userPrompt ?? "",
     projectInstructions: input.system.projectInstructions ?? "",
+    userMemory: userMemoryText,
+    projectMemory: projectMemoryText,
     summary: summaryText,
     semanticMemory,
     ragContext,
@@ -201,6 +251,8 @@ export async function optimizeContext(input: OptimizeInput): Promise<OptimizeOut
     stableSystemPrefix: stablePrefix,
     messages: finalMessages,
     outputLimit,
+    memoryDecision: memDecision,
+    memoriesUsed,
   };
 }
 
