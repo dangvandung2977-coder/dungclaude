@@ -149,4 +149,16 @@ describe("Markdown → CodeBlock integration", () => {
     const html = renderToString(React.createElement(Markdown, { text: md }));
     expect(html).toContain("PYTHON");
   });
+
+  it("unwraps full markdown documents that contain inner code fences instead of inverting", () => {
+    const md = "```markdown:docs/GDD.md\n# Game Title\nSome intro text.\n```\nInner Diagram\n```\n- Bullet point\n```";
+    const html = renderToString(React.createElement(Markdown, { text: md }));
+    // It should render <h1> for Game Title rather than code block
+    expect(html).toContain("<h1");
+    expect(html).toContain("Game Title</h1>");
+    // It should render the inner diagram inside a code block
+    expect(html).toContain("Inner Diagram");
+    // Bullet point should render as <li>, not raw code
+    expect(html).toContain("<li>Bullet point</li>");
+  });
 });

@@ -40,7 +40,42 @@ function remarkFenceMeta() {
   };
 }
 
+/**
+ * Unwraps full markdown documents that were mistakenly wrapped in an outer ```markdown:doc.md ... ```
+ * which causes inner code fences (like diagrams or math formulas) to prematurely close and invert the document.
+ */
+function unwrapDocumentFences(text: string): string {
+  if (!text || (!text.includes("```markdown") && !text.includes("```md"))) return text;
+
+  return text.replace(
+    /(^|\n)[ \t]*```(?:markdown|md)(?::[^\n\r]+)?\r?\n([\s\S]*)/g,
+    (match, prefix, afterStart) => {
+      const fenceIndices: number[] = [];
+      const re = /(^|\n)[ \t]*```[^\n\r]*/g;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(afterStart)) !== null) {
+        fenceIndices.push(m.index + m[1].length);
+      }
+
+      // If fenceIndices count is odd, the last fence in afterStart is the outer closing fence
+      if (fenceIndices.length % 2 === 1) {
+        const lastFenceIdx = fenceIndices[fenceIndices.length - 1];
+        const innerDoc = afterStart.slice(0, lastFenceIdx);
+        const trailing = afterStart.slice(lastFenceIdx).replace(/^[ \t]*```[^\n\r]*\r?\n?/, "");
+
+        // If innerDoc contains markdown headings (# or ##), it is a document, not code
+        if (/^#{1,4}\s+/m.test(innerDoc)) {
+          return `${prefix}${innerDoc}\n${trailing}`;
+        }
+      }
+      return match;
+    }
+  );
+}
+
 export const Markdown = React.memo(function Markdown({ text, streaming = false }: MarkdownProps) {
+  const cleanText = React.useMemo(() => unwrapDocumentFences(text), [text]);
+
   return (
     <div className="md-body select-text">
       <ReactMarkdown
@@ -87,7 +122,7 @@ export const Markdown = React.memo(function Markdown({ text, streaming = false }
           },
         }}
       >
-        {text}
+        {cleanText}
       </ReactMarkdown>
     </div>
   );

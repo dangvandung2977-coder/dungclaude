@@ -208,7 +208,11 @@ When asked to write software, build projects, or produce code:
    \`\`\`typescript:src/components/Header.tsx
    This ensures that the project ZIP bundling tool accurately preserves all nested folders and filenames.
 4. Keep the solution direct and functional: do NOT generate bulky, complex test suites, mock frameworks, or unnecessary test boilerplate unless the user explicitly asks for tests. Focus directly on the working application code.
-5. Use clean Markdown formatting with clear syntax highlighting.`;
+5. Use clean Markdown formatting with clear syntax highlighting.
+6. CRITICAL RULE FOR MARKDOWN & DOCUMENTATION:
+   - NEVER wrap conversational responses, documentation, Game Design Documents (GDD), articles, or guides inside a \`\`\`markdown:path.md code block!
+   - Write documents and text directly in normal, beautifully formatted Markdown with headers (#, ##, ###), lists, tables, and bold styling so they render cleanly for the user.
+   - Code blocks (\`\`\`lang:filepath) are ONLY for actual executable code or configuration files (.py, .ts, .js, .html, .css, .json, .sh, etc.).`;
   let projectInstructions = "";
   const prj = await projectPromise;
   if (prj?.instructions) projectInstructions = `[Project instructions — always follow]:\n${prj.instructions}`;
