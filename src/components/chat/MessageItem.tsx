@@ -18,6 +18,7 @@ import {
 import { Markdown } from "./Markdown";
 import { CodeBlock } from "./CodeBlock";
 import { ThinkingBlock } from "./ThinkingBlock";
+import { ThinkingIndicator } from "./ThinkingIndicator";
 import { ProjectZipCard } from "./ProjectZipCard";
 import { parseThinking, extractCodeBlocks, isLargeProject } from "@/lib/ai/thinking";
 import { copyText, cn } from "@/lib/utils";
@@ -323,12 +324,20 @@ export const MessageItem = React.memo(function MessageItem({
 
   return (
     <article className="group relative py-3 select-text w-full flex items-start gap-3.5 sm:gap-4" aria-label="Câu trả lời từ Claude">
-      {/* Claude Avatar Icon on the LEFT */}
-      <div className="h-8 w-8 rounded-xl bg-[#262523] border border-white/10 flex items-center justify-center shrink-0 mt-0.5 select-none shadow-xs">
+      {/* Claude Avatar Icon on the LEFT with glowing aura & gentle spin when thinking */}
+      <div
+        className={cn(
+          "h-8 w-8 rounded-xl bg-[#262523] border border-white/10 flex items-center justify-center shrink-0 mt-0.5 select-none shadow-xs transition-all duration-300",
+          streaming && !parsed.content && "border-[#D97757]/40 shadow-[0_0_12px_rgba(217,119,87,0.3)] ring-1 ring-[#D97757]/20"
+        )}
+      >
         <svg
           viewBox="0 0 24 24"
           fill="currentColor"
-          className="h-4.5 w-4.5 text-[#D97757]"
+          className={cn(
+            "h-4.5 w-4.5 text-[#D97757] transition-all duration-300",
+            streaming && !parsed.content && "animate-spin-slow text-[#E2886A]"
+          )}
           xmlns="http://www.w3.org/2000/svg"
         >
           <rect x="10.5" y="1" width="3" height="22" rx="1.5" />
@@ -386,9 +395,8 @@ export const MessageItem = React.memo(function MessageItem({
         {parsed.content ? (
           <Markdown text={parsed.content} streaming={Boolean(streaming)} />
         ) : streaming && !parsed.isThinking ? (
-          <div className="flex items-center gap-2 py-1 text-sm text-[#A6A49B]" aria-label="Claude đang suy nghĩ">
-            <span className="inline-block h-2 w-2 rounded-full bg-[#D97757] animate-pulse" />
-            <span className="italic font-serif text-[#ECEBE4]/80 tracking-wide">Claude đang suy nghĩ…</span>
+          <div className="py-1">
+            <ThinkingIndicator label="Claude đang suy nghĩ…" />
           </div>
         ) : null}
 

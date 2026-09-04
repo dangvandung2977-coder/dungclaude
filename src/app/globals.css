@@ -497,3 +497,66 @@ body {
 .animate-float {
   animation: float-subtle 6s ease-in-out infinite;
 }
+
+/* Claude Thinking Indicator Animations */
+@keyframes thinking-dot {
+  0%, 80%, 100% {
+    transform: scale(0.65);
+    opacity: 0.35;
+  }
+  40% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+}
+
+.animate-thinking-dot-1 {
+  animation: thinking-dot 1.4s ease-in-out infinite;
+}
+.animate-thinking-dot-2 {
+  animation: thinking-dot 1.4s ease-in-out 0.2s infinite;
+}
+.animate-thinking-dot-3 {
+  animation: thinking-dot 1.4s ease-in-out 0.4s infinite;
+}
+
+@keyframes text-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-text-shimmer {
+  background: linear-gradient(90deg, #A6A49B 0%, #ECEBE4 30%, #D97757 50%, #ECEBE4 70%, #A6A49B 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: text-shimmer 3.2s ease-in-out infinite;
+}
+
+@keyframes wave-pulse {
+  0%, 100% {
+    height: 4px;
+    opacity: 0.5;
+  }
+  50% {
+    height: 14px;
+    opacity: 1;
+  }
+}
+
+.animate-wave-1 { animation: wave-pulse 1.2s ease-in-out infinite; }
+.animate-wave-2 { animation: wave-pulse 1.2s ease-in-out 0.2s infinite; }
+.animate-wave-3 { animation: wave-pulse 1.2s ease-in-out 0.4s infinite; }
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 12s linear infinite;
+}

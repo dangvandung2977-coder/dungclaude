@@ -452,8 +452,22 @@ async function callDemo(model: string, messages: GatewayMessage[], cb: StreamCal
 
   let md = "";
 
+  // 0. Greetings / Identity
+  if (/bạn là (ai|model|gì)|model nào|who are you|what model/i.test(lower)) {
+    md += `Tôi là **DungClaude** — trợ lý trí tuệ nhân tạo được xây dựng trên nền tảng DungClaude AI Workspace.\n\n`;
+    md += `Hiện tại bạn đang tương tác thông qua định danh mô hình **${model}**.\n\n`;
+    md += `Tôi có thể hỗ trợ bạn:\n`;
+    md += `- Lập trình & giải quyết bài toán kỹ thuật (Full-stack, Python, Rust, Go, v.v.)\n`;
+    md += `- Phân tích tài liệu, hình ảnh & video đa phương thức\n`;
+    md += `- Xây dựng giao diện xem trước trực tiếp trên Canvas\n`;
+    md += `- Đóng gói dự án mã nguồn thành tệp ZIP hoàn chỉnh.\n\n`;
+    md += `Tôi có thể giúp gì cho bạn hôm nay?`;
+  } else if (/^(chào|hello|hi|hey|xin chào)\b/i.test(lower.trim())) {
+    md += `Xin chào! Tôi là **DungClaude**, trợ lý AI của bạn. Rất vui được đồng hành cùng bạn hôm nay!\n\n`;
+    md += `Bạn đang cần viết mã nguồn, giải đáp thắc mắc kỹ thuật hay xây dựng dự án nào không?`;
+  }
   // 1. If asking for code / landing page / component / dashboard / HTML / React
-  if (lower.includes("landing page") || lower.includes("dashboard") || lower.includes("component") || lower.includes("html") || lower.includes("react") || lower.includes("canvas") || lower.includes("mã nguồn") || lower.includes("code")) {
+  else if (lower.includes("landing page") || lower.includes("dashboard") || lower.includes("component") || lower.includes("html") || lower.includes("react") || lower.includes("canvas") || lower.includes("mã nguồn") || lower.includes("code")) {
     md += `Dưới đây là mã nguồn hoàn chỉnh theo tiêu chuẩn thiết kế hiện đại, tương thích trực tiếp với **Lumen Live Canvas**:\n\n`;
     md += `\`\`\`html\n`;
     md += `<!DOCTYPE html>\n<html lang="vi" class="dark">\n<head>\n  <meta charset="UTF-8" />\n  <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n  <title>Lumen Interactive Component</title>\n  <script src="https://cdn.tailwindcss.com"></script>\n  <style>\n    body { background-color: #0c0d12; color: #f1f5f9; font-family: ui-sans-serif, system-ui, sans-serif; }\n  </style>\n</head>\n<body class="p-6 md:p-10 flex flex-col items-center justify-center min-h-screen">\n  <div class="max-w-xl w-full p-6 rounded-2xl bg-[#121622] border border-white/10 shadow-2xl space-y-5">\n    <div class="flex items-center justify-between border-b border-white/10 pb-4">\n      <div class="flex items-center gap-2.5">\n        <div class="h-8 w-8 rounded-lg bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 flex items-center justify-center font-bold font-mono">✦</div>\n        <div>\n          <h2 class="text-sm font-semibold text-white">Live Metric Dashboard</h2>\n          <p class="text-xs text-slate-400 font-mono">Status: Connected (Real-time)</p>\n        </div>\n      </div>\n      <span class="text-xs font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Active</span>\n    </div>\n\n    <div class="grid grid-cols-2 gap-3">\n      <div class="p-4 rounded-xl bg-white/[0.02] border border-white/[0.06]">\n        <span class="text-xs text-slate-400">Total ARR</span>\n        <p class="text-xl font-bold font-mono text-white mt-1">$1,248,500</p>\n        <span class="text-[11px] text-emerald-400">+24.8% YoY</span>\n      </div>\n      <div class="p-4 rounded-xl bg-white/[0.02] border border-white/[0.06]">\n        <span class="text-xs text-slate-400">Churn Rate</span>\n        <p class="text-xl font-bold font-mono text-white mt-1">0.82%</p>\n        <span class="text-[11px] text-indigo-400">Optimal Range</span>\n      </div>\n    </div>\n\n    <div class="p-4 rounded-xl bg-black/30 border border-white/5">\n      <div class="flex items-center justify-between text-xs text-slate-400 mb-2">\n        <span>Throughput Stream</span>\n        <span class="font-mono">82 req/s</span>\n      </div>\n      <div class="w-full bg-white/10 h-2 rounded-full overflow-hidden">\n        <div class="bg-indigo-500 h-full w-[78%] rounded-full animate-pulse"></div>\n      </div>\n    </div>\n\n    <button id="counterBtn" class="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition-all shadow-md font-mono cursor-pointer">\n      Tương tác kiểm tra Sandbox (Clicks: 0)\n    </button>\n  </div>\n\n  <script>\n    let count = 0;\n    const btn = document.getElementById('counterBtn');\n    btn.addEventListener('click', () => {\n      count++;\n      btn.innerText = \`Tương tác kiểm tra Sandbox (Clicks: \${count})\`;\n      btn.classList.add('scale-98');\n      setTimeout(() => btn.classList.remove('scale-98'), 100);\n    });\n  </script>\n</body>\n</html>\n`;
@@ -546,6 +560,23 @@ async function callDemo(model: string, messages: GatewayMessage[], cb: StreamCal
   };
 }
 
+function formatFriendlyGatewayError(modelId: string, err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  if (/403/i.test(msg)) {
+    return `Không thể kết nối tới mô hình "${modelId}". Máy chủ API phản hồi lỗi 403 Forbidden (API Key không hợp lệ, hết hạn hoặc bị từ chối truy cập). Vui lòng kiểm tra lại endpoint trong Admin hoặc chọn model khác.`;
+  }
+  if (/429/i.test(msg) || /quota/i.test(msg)) {
+    return `Mô hình "${modelId}" hiện đã vượt hạn mức sử dụng (429 Quota Exceeded / Rate Limit). Vui lòng thử lại sau giây lát hoặc chuyển sang model khác.`;
+  }
+  if (/401/i.test(msg) || /unauthorized/i.test(msg)) {
+    return `Không thể xác thực với mô hình "${modelId}" (401 Unauthorized). API Key không đúng hoặc chưa được cấp quyền.`;
+  }
+  if (/502|503|504/i.test(msg) || /bad gateway|service unavailable|gateway timeout/i.test(msg)) {
+    return `Máy chủ upstream của mô hình "${modelId}" đang gặp sự cố (502/503/504). Vui lòng thử lại sau hoặc chuyển sang model khác.`;
+  }
+  return `Lỗi phản hồi từ mô hình "${modelId}": ${msg}`;
+}
+
 export async function runGateway(opts: {
   modelId: string; messages: GatewayMessage[]; system?: string;
   stableSystemPrefix?: string; // stable prefix of system for provider prompt caching
@@ -620,10 +651,18 @@ export async function runGateway(opts: {
     return await finalizeToolLoop(first, p, opts);
   };
 
-  const order = [provider, ...(config.ai.fallbackEnabled ? (opts.fallbackOrder ?? config.ai.fallbackOrder).filter((x) => x !== provider) : [])];
+  // If user explicitly chose demo, run demo directly
+  if (provider === "demo") {
+    return await attempt("demo");
+  }
+
+  const rawOrder = [provider, ...(config.ai.fallbackEnabled ? (opts.fallbackOrder ?? config.ai.fallbackOrder).filter((x) => x !== provider) : [])];
+  // Do NOT include 'demo' in fallback order for real user models — silently returning fake analysis confuses users
+  const order = rawOrder.filter((p) => p !== "demo");
+
   let lastErr: unknown = null;
   for (const p of order) {
-    if (p !== "demo" && p !== "custom") {
+    if (p !== "custom") {
       const cfg = await getProviderConfig(p).catch(() => null);
       if (!cfg || !cfg.enabled || !cfg.hasKey) continue;
     }
@@ -635,13 +674,8 @@ export async function runGateway(opts: {
     }
   }
 
-  // Graceful fallback: If all external providers fail, seamlessly fallback to built-in Claude engine
-  try {
-    console.warn("[AI Gateway] Falling back to built-in Claude engine");
-    return await attempt("demo");
-  } catch {
-    throw lastErr instanceof Error ? lastErr : new Error("All AI providers failed");
-  }
+  // All real providers failed — raise clear diagnostic error
+  throw new Error(formatFriendlyGatewayError(opts.modelId, lastErr));
 }
 
 async function finalizeToolLoop(
