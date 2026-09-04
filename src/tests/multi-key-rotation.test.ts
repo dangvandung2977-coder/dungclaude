@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { parseKeyList, formatKeyHint } from "@/lib/ai/providers-config";
+import { formatFriendlyGatewayError, isKeyRetryableError } from "@/lib/ai/gateway";
 
 describe("Multi-Key Pool & Rotation Unit Tests", () => {
   it("parseKeyList handles various input formats correctly", () => {
@@ -71,4 +72,25 @@ describe("Multi-Key Pool & Rotation Unit Tests", () => {
     expect(attemptedKeys).toEqual(["key_rate_limited_429", "key_working_200"]);
     expect(result).toEqual({ text: "Success from key 2", status: 200 });
   });
+
+  it("isKeyRetryableError recognizes 502, 503, 504 and upstream rate limits", () => {
+    expect(isKeyRetryableError(new Error("Provider error 503: upstream_rate_limited"))).toBe(true);
+    expect(isKeyRetryableError(new Error("所有回退分组均不可用:Rate limited by the upstream provider."))).toBe(true);
+    expect(isKeyRetryableError(new Error("502 Bad Gateway"))).toBe(true);
+    expect(isKeyRetryableError(new Error("504 Gateway Timeout"))).toBe(true);
+    expect(isKeyRetryableError(new Error("429 Too Many Requests"))).toBe(true);
+    expect(isKeyRetryableError(new Error("401 Unauthorized"))).toBe(true);
+    expect(isKeyRetryableError(new Error("Random syntax error"))).toBe(false);
+  });
+
+  it("formatFriendlyGatewayError translates upstream rate limits cleanly into Vietnamese", () => {
+    const rawError = new Error('Provider error 503: {"error":{"code":"upstream_rate_limited","message":"所有回退分组均不可用:Rate limited by the upstream provider. (ID: 38a850b9-1a5b-45f7-943e-5826c7ecff53)","request_id":"abc"}}');
+    const formatted = formatFriendlyGatewayError("custom:ce_mtlvonl4onhkmyb8:claude-opus-5", rawError);
+
+    expect(formatted).toContain('Mô hình "custom:ce_mtlvonl4onhkmyb8:claude-opus-5" hiện đang bị giới hạn tải');
+    expect(formatted).toContain("Rate Limit");
+    // Must NOT contain unformatted Chinese error text
+    expect(formatted).not.toContain("所有回退分组均不可用");
+  });
 });
+

@@ -253,7 +253,13 @@ export async function resolveModel(opts: { explicit?: string; hasVideo: boolean;
   if (!isValid) {
     const customs = await getAvailableCustomModels().catch(() => []);
     if (customs.length > 0) {
-      target = customs[0].id;
+      const originalModelLower = (ref.model || "").toLowerCase();
+      const familyKeywords = ["claude", "opus", "sonnet", "haiku", "gpt", "qwen", "kimi", "glm", "deepseek"];
+      const matchedKeyword = familyKeywords.find((kw) => originalModelLower.includes(kw));
+      const match = matchedKeyword
+        ? customs.find((c) => c.id.toLowerCase().includes(matchedKeyword) || c.name.toLowerCase().includes(matchedKeyword))
+        : null;
+      target = (match ?? customs[0]).id;
     } else {
       const geminiCfg = await getProviderConfig("gemini").catch(() => null);
       if (geminiCfg?.enabled && geminiCfg?.hasKey) {

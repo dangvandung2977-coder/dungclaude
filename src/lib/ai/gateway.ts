@@ -1,7 +1,7 @@
 import { config } from "@/lib/config";
 import { modelNameOf, providerOf, parseModelRef, estimateTokens } from "./registry";
 import { getProviderApiKey, getProviderApiKeys, getProviderConfig } from "./providers-config";
-import { getEndpointCredentials } from "./custom-endpoints";
+import { getEndpointCredentials, getAvailableCustomModels } from "./custom-endpoints";
 import { isStreamingSupported, markStreamingUnsupported, isUpstreamUnsupportedError } from "./streaming-capabilities";
 import { EnvHttpProxyAgent, setGlobalDispatcher } from "undici";
 
@@ -32,6 +32,7 @@ export interface GatewayTool { name: string; description: string; parameters: Re
 export interface StreamCallbacks {
   onToken: (t: string) => void;
   onToolCall?: (id: string, name: string, input: unknown) => void;
+  onStatus?: (status: string) => void;
   signal?: AbortSignal;
 }
 export interface GatewayResult {
@@ -576,13 +577,36 @@ async function callDemo(model: string, messages: GatewayMessage[], cb: StreamCal
   };
 }
 
-function formatFriendlyGatewayError(modelId: string, err: unknown): string {
+function cleanErrorSnippet(msg: string): string {
+  try {
+    const jsonMatch = msg.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      const m = parsed?.error?.message || parsed?.message;
+      if (m && typeof m === "string") {
+        if (/upstream_rate_limited|所有回退分组均不可用|Rate limited by the upstream provider/i.test(m)) {
+          return "Máy chủ nguồn bị giới hạn tốc độ (Upstream rate limit)";
+        }
+        return m.slice(0, 180);
+      }
+    }
+  } catch { /* ignore parse error */ }
+  if (/upstream_rate_limited|所有回退分组均不可用|Rate limited by the upstream provider/i.test(msg)) {
+    return "Máy chủ nguồn bị giới hạn tốc độ (Upstream rate limit)";
+  }
+  return msg.slice(0, 180);
+}
+
+export function formatFriendlyGatewayError(modelId: string, err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err ?? "");
+  if (/upstream_rate_limited|所有回退分组均不可用|Rate limited by the upstream provider/i.test(msg)) {
+    return `Mô hình "${modelId}" hiện đang bị giới hạn tải từ máy chủ nguồn upstream (Rate Limit / Quá tải luồng). Hệ thống đã tự động thử các kênh dự phòng nhưng máy chủ nguồn hiện đang bận. Vui lòng thử lại sau giây lát hoặc chọn mô hình khác.`;
+  }
   if (/403/i.test(msg)) {
-    return `Không thể kết nối tới mô hình "${modelId}". Máy chủ API phản hồi lỗi 403 Forbidden (Máy chủ đích từ chối kết nối, API Key bị khóa hoặc IP bị chặn bởi Nginx/Cloudflare). Chi tiết: ${msg.slice(0, 180)}`;
+    return `Không thể kết nối tới mô hình "${modelId}". Máy chủ API phản hồi lỗi 403 Forbidden (Máy chủ đích từ chối kết nối, API Key bị khóa hoặc IP bị chặn). Chi tiết: ${cleanErrorSnippet(msg)}`;
   }
   if (/502|503|504/i.test(msg) || /bad gateway|service unavailable|gateway timeout|upstream_unsupported/i.test(msg)) {
-    return `Máy chủ upstream của mô hình "${modelId}" báo lỗi (502/503: máy chủ bên cung cấp đang bảo trì hoặc chưa hỗ trợ model ID này). Chi tiết: ${msg.slice(0, 180)}`;
+    return `Máy chủ upstream của mô hình "${modelId}" báo lỗi (502/503: máy chủ bên cung cấp đang bảo trì hoặc quá tải). Chi tiết: ${cleanErrorSnippet(msg)}`;
   }
   if (/429/i.test(msg) || /quota|rate limit|too many requests|resource has been exhausted/i.test(msg)) {
     return `Mô hình "${modelId}" hiện đã vượt hạn mức sử dụng (429 Quota Exceeded / Rate Limit). Vui lòng thử lại sau giây lát hoặc chuyển sang model khác.`;
@@ -590,12 +614,12 @@ function formatFriendlyGatewayError(modelId: string, err: unknown): string {
   if (/401/i.test(msg) || /unauthorized/i.test(msg)) {
     return `Không thể xác thực với mô hình "${modelId}" (401 Unauthorized). API Key không đúng hoặc chưa được cấp quyền.`;
   }
-  return `Lỗi phản hồi từ mô hình "${modelId}": ${msg}`;
+  return `Lỗi phản hồi từ mô hình "${modelId}": ${cleanErrorSnippet(msg)}`;
 }
 
-function isKeyRetryableError(err: unknown): boolean {
+export function isKeyRetryableError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err ?? "");
-  return /429|quota|rate limit|too many requests|resource has been exhausted|403|forbidden|unauthorized|401/i.test(msg);
+  return /429|502|503|504|quota|rate limit|upstream_rate_limited|所有回退分组均不可用|too many requests|resource has been exhausted|bad gateway|gateway timeout|service unavailable|403|forbidden|unauthorized|401/i.test(msg);
 }
 
 export async function runGateway(opts: {
@@ -612,6 +636,40 @@ export async function runGateway(opts: {
   const model = modelNameOf(opts.modelId);
   const tools = opts.tools ?? [];
 
+  const attemptCustom = async (cModelId: string): Promise<GatewayResult> => {
+    const ref = parseModelRef(cModelId);
+    if (!ref.endpointId) throw new Error("Custom model thiếu endpoint (admin: /admin/endpoints)");
+    const cred = await getEndpointCredentials(ref.endpointId);
+    if (!cred) throw new Error("Endpoint không tồn tại (admin: /admin/endpoints)");
+    if (!cred.enabled) throw new Error(`Endpoint "${cred.name}" đang tắt (admin bật tại /admin/endpoints)`);
+    const keyPool = cred.keys && cred.keys.length > 0 ? cred.keys : (cred.key ? [cred.key] : []);
+    if (!keyPool.length) throw new Error(`Endpoint "${cred.name}" chưa có API key`);
+    // Fast timeout for custom endpoints (12s max) to prevent long hangs on dead servers
+    const customTimeout = Math.min(config.ai.timeoutMs, 12000);
+    let lastKeyErr: unknown = null;
+    for (let i = 0; i < keyPool.length; i++) {
+      const activeKey = keyPool[i];
+      try {
+        const first = await callOpenAICompatible({
+          baseUrl: cred.baseUrl, apiKey: activeKey, model: ref.model,
+          messages: [...(opts.system ? [{ role: "system" as const, content: opts.system }] : []), ...opts.messages],
+          tools, cb: opts.cb, timeoutMs: customTimeout, maxTokens: opts.maxTokens,
+          capabilities: opts.capabilities,
+          supportsStreaming: opts.supportsStreaming,
+        });
+        return await finalizeToolLoop(first, "custom", { ...opts, modelId: cModelId });
+      } catch (err) {
+        lastKeyErr = err;
+        if (i < keyPool.length - 1 && isKeyRetryableError(err)) {
+          console.warn(`[AI Gateway] Custom endpoint "${cred.name}" key #${i + 1} gặp lỗi: ${err instanceof Error ? err.message : String(err)}. Tự động chuyển sang key #${i + 2}/${keyPool.length}...`);
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw lastKeyErr;
+  };
+
   const attempt = async (p: string): Promise<GatewayResult> => {
     if (p === "demo") {
       const r = await callDemo(opts.modelId, opts.messages, opts.cb);
@@ -620,37 +678,7 @@ export async function runGateway(opts: {
 
     // Custom endpoint riêng (admin thêm nhiều endpoint tại /admin/endpoints)
     if (p === "custom") {
-      const ref = parseModelRef(opts.modelId);
-      if (!ref.endpointId) throw new Error("Custom model thiếu endpoint (admin: /admin/endpoints)");
-      const cred = await getEndpointCredentials(ref.endpointId);
-      if (!cred) throw new Error("Endpoint không tồn tại (admin: /admin/endpoints)");
-      if (!cred.enabled) throw new Error(`Endpoint "${cred.name}" đang tắt (admin bật tại /admin/endpoints)`);
-      const keyPool = cred.keys && cred.keys.length > 0 ? cred.keys : (cred.key ? [cred.key] : []);
-      if (!keyPool.length) throw new Error(`Endpoint "${cred.name}" chưa có API key`);
-      // Fast timeout for custom endpoints (12s max) to prevent long hangs on dead servers
-      const customTimeout = Math.min(config.ai.timeoutMs, 12000);
-      let lastKeyErr: unknown = null;
-      for (let i = 0; i < keyPool.length; i++) {
-        const activeKey = keyPool[i];
-        try {
-          const first = await callOpenAICompatible({
-            baseUrl: cred.baseUrl, apiKey: activeKey, model: ref.model,
-            messages: [...(opts.system ? [{ role: "system" as const, content: opts.system }] : []), ...opts.messages],
-            tools, cb: opts.cb, timeoutMs: customTimeout, maxTokens: opts.maxTokens,
-            capabilities: opts.capabilities,
-            supportsStreaming: opts.supportsStreaming,
-          });
-          return await finalizeToolLoop(first, p, opts);
-        } catch (err) {
-          lastKeyErr = err;
-          if (i < keyPool.length - 1 && isKeyRetryableError(err)) {
-            console.warn(`[AI Gateway] Custom endpoint "${cred.name}" key #${i + 1} gặp lỗi: ${err instanceof Error ? err.message : String(err)}. Tự động chuyển sang key #${i + 2}/${keyPool.length}...`);
-            continue;
-          }
-          throw err;
-        }
-      }
-      throw lastKeyErr;
+      return await attemptCustom(opts.modelId);
     }
     const cfg = await getProviderConfig(p);
     const keyPool = await getProviderApiKeys(p);
@@ -707,15 +735,79 @@ export async function runGateway(opts: {
     return await attempt("demo");
   }
 
-  // If user explicitly chose a custom endpoint model, do NOT fallback to other providers (like Gemini/OpenAI), because:
-  // 1) Custom endpoints have different model weights/capabilities that cannot be transparently replaced by Gemini
-  // 2) Fallback errors (e.g. Gemini 429 quota) mask the real issue of the custom endpoint (e.g. 403 Forbidden, 502 upstream unsupported)
+  // If user explicitly chose a custom endpoint model:
+  // Try chosen model first. If it encounters 502/503/429/timeout/rate-limit, gracefully fall back
+  // to alternative active custom models (e.g. Claude on another endpoint) or configured providers.
   if (provider === "custom") {
+    let primaryErr: unknown = null;
     try {
-      return await attempt("custom");
+      return await attemptCustom(opts.modelId);
     } catch (e) {
-      throw new Error(formatFriendlyGatewayError(opts.modelId, e));
+      primaryErr = e;
+      console.warn(`[AI Gateway] Primary custom model "${opts.modelId}" failed:`, e instanceof Error ? e.message : String(e));
+      if (!config.ai.fallbackEnabled) {
+        throw new Error(formatFriendlyGatewayError(opts.modelId, e));
+      }
     }
+
+    // 1. Attempt fallback to alternative active custom models
+    try {
+      const availableCustom = await getAvailableCustomModels().catch(() => []);
+      const ref = parseModelRef(opts.modelId);
+      const originalModelLower = (ref.model || "").toLowerCase();
+
+      // Only candidate models from OTHER endpoints or different model IDs
+      const candidates = availableCustom.filter((m) => {
+        const mRef = parseModelRef(m.id);
+        return mRef.endpointId !== ref.endpointId && m.id !== opts.modelId;
+      });
+
+      const familyKeywords = ["claude", "opus", "sonnet", "haiku", "gpt", "qwen", "kimi", "glm", "deepseek"];
+      const matchedKeyword = familyKeywords.find((kw) => originalModelLower.includes(kw));
+
+      const sortedCandidates = [...candidates].sort((a, b) => {
+        const aName = (parseModelRef(a.id).model || "").toLowerCase();
+        const bName = (parseModelRef(b.id).model || "").toLowerCase();
+        if (aName === originalModelLower) return -1;
+        if (bName === originalModelLower) return 1;
+        if (matchedKeyword) {
+          const aMatch = aName.includes(matchedKeyword);
+          const bMatch = bName.includes(matchedKeyword);
+          if (aMatch && !bMatch) return -1;
+          if (!aMatch && bMatch) return 1;
+        }
+        return 0;
+      });
+
+      for (const cand of sortedCandidates.slice(0, 3)) {
+        try {
+          opts.cb.onStatus?.(`⚠️ Mô hình gặp sự cố, tự động chuyển sang mô hình dự phòng "${cand.name}"...`);
+          console.log(`[AI Gateway] Custom fallback: switching from "${opts.modelId}" to "${cand.id}"...`);
+          return await attemptCustom(cand.id);
+        } catch (candErr) {
+          console.warn(`[AI Gateway] Custom fallback candidate "${cand.id}" failed:`, candErr instanceof Error ? candErr.message : String(candErr));
+        }
+      }
+    } catch (fbErr) {
+      console.warn("[AI Gateway] Error selecting custom model fallback:", fbErr);
+    }
+
+    // 2. If custom fallbacks fail or none available, try configured standard providers (Gemini, OpenRouter, etc.)
+    const standardProviders = (opts.fallbackOrder ?? config.ai.fallbackOrder).filter((p) => p !== "demo" && p !== "custom");
+    for (const p of standardProviders) {
+      const cfg = await getProviderConfig(p).catch(() => null);
+      if (!cfg || !cfg.enabled || !cfg.hasKey) continue;
+      try {
+        opts.cb.onStatus?.(`⚠️ Máy chủ custom model quá tải, chuyển sang provider dự phòng (${p})...`);
+        console.log(`[AI Gateway] Custom fallback: switching from "${opts.modelId}" to standard provider "${p}"...`);
+        return await attempt(p);
+      } catch (pErr) {
+        console.warn(`[AI Gateway] Standard provider fallback "${p}" failed:`, pErr instanceof Error ? pErr.message : String(pErr));
+      }
+    }
+
+    // All fallbacks exhausted — display clean, friendly error explaining the original model's issue
+    throw new Error(formatFriendlyGatewayError(opts.modelId, primaryErr));
   }
 
   const rawOrder = [provider, ...(config.ai.fallbackEnabled ? (opts.fallbackOrder ?? config.ai.fallbackOrder).filter((x) => x !== provider) : [])];

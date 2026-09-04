@@ -327,6 +327,7 @@ When asked to write software, build projects, or produce code:
           cb: {
             onToken: (t) => { full += t; send("token", { delta: t }); },
             onToolCall: (id, name, input) => send("tool_call", { id, name, input }),
+            onStatus: (st) => send("status", { status: st }),
             signal: req.signal,
           },
           executeTool: (name, input) => executeTool(name, input, { conversationId: conv.id, projectId: conv.projectId ?? undefined }),
@@ -336,11 +337,13 @@ When asked to write software, build projects, or produce code:
           toolEvents.push(tc);
           send("tool_result", { id: tc.id, name: tc.name, status: "success" });
         }
+        const respondingModelId = result.model || optimized.routing.modelId;
+        const respondingMeta = allModels.find((m) => m.id === respondingModelId) ?? modelMeta;
         const inTok = result.inputTokens || estimateTokens(optimized.system + optimized.messages.map((m) => m.content).join("\n"));
         const outTok = result.outputTokens || estimateTokens(full);
-        const cost = modelMeta
-          ? calculateCost(modelMeta, { inputTokens: inTok, outputTokens: outTok, cachedInputTokens: result.cachedInputTokens, cacheCreationTokens: result.cacheCreationTokens })
-          : calcCost(optimized.routing.modelId, inTok, outTok, allModels);
+        const cost = respondingMeta
+          ? calculateCost(respondingMeta, { inputTokens: inTok, outputTokens: outTok, cachedInputTokens: result.cachedInputTokens, cacheCreationTokens: result.cacheCreationTokens })
+          : calcCost(respondingModelId, inTok, outTok, allModels);
         // Persist assistant message
         const assistantMsg = await createMessage({
           conversationId: conv.id, role: "assistant", content: full,
@@ -348,14 +351,14 @@ When asked to write software, build projects, or produce code:
             { type: "text", text: full },
             ...toolEvents.map((t) => ({ type: "tool_call" as const, toolName: t.name, toolCallId: t.id, toolInput: t.input, toolOutput: t.output, status: "success" as const })),
           ],
-          modelId: optimized.routing.modelId,
+          modelId: respondingModelId,
         });
         assistantMsgSaved = true;
         await updateMessageStats(assistantMsg.id, inTok, outTok, cost);
         // Optimized usage tracking (normalized schema; falls back if migration not run)
         await recordOptimizedUsage({
           userId: user.id, conversationId: conv.id, messageId: assistantMsg.id,
-          model: optimized.routing.modelId, provider: result.provider, functionKey,
+          model: respondingModelId, provider: result.provider, functionKey,
           usage: {
             inputTokens: inTok, outputTokens: outTok,
             cachedInputTokens: result.cachedInputTokens, cacheCreationTokens: result.cacheCreationTokens,
@@ -404,12 +407,12 @@ When asked to write software, build projects, or produce code:
         })();
 
         send("usage", {
-          inputTokens: inTok, outputTokens: outTok, costUsd: cost, model: optimized.routing.modelId,
+          inputTokens: inTok, outputTokens: outTok, costUsd: cost, model: respondingModelId,
           cachedInputTokens: result.cachedInputTokens,
           tokensSaved: optimized.result.tokensSaved,
         });
         send("optimization", {
-          model: optimized.routing.modelId,
+          model: respondingModelId,
           provider: result.provider,
           taskClass: optimized.routing.taskClass,
           routingReason: optimized.routing.reason,
