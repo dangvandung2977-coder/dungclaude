@@ -662,7 +662,7 @@ export function ChatView({
         return prev;
       });
 
-      let currentAsstId = asstId;
+      const currentAsstId = asstId;
 
       try {
         const r = await fetch(`/api/chat/resume?conversationId=${convId}`, {
