@@ -15,6 +15,7 @@ import {
   BarChart3,
   Check,
   AlertTriangle,
+  Key,
 } from "lucide-react";
 import { Button, Modal, useToast } from "@/components/ui/primitives";
 import { useSession } from "@/hooks/useSession";
@@ -247,6 +248,25 @@ export default function SettingsPage() {
                         Khám phá models →
                       </Link>
                     </div>
+
+                    {user?.role === "admin" && (
+                      <div className="p-3.5 rounded-lg bg-gradient-to-r from-[#D97757]/15 to-transparent border border-[#D97757]/30 flex items-center justify-between gap-3">
+                        <div>
+                          <p className="font-semibold text-xs text-[#D97757] flex items-center gap-1.5">
+                            <Key size={13} /> Quản lý & Dán API Key
+                          </p>
+                          <p className="text-[11px] text-[var(--text-2)] mt-0.5">
+                            Dán key cho Gemini, Claude, OpenAI hoặc Custom Endpoints. Tự động đổi key khi gặp Rate Limit (429).
+                          </p>
+                        </div>
+                        <Link
+                          href="/admin"
+                          className="px-3 py-1.5 rounded-lg text-xs font-medium bg-[#D97757] hover:bg-[#c46849] text-white transition-all shrink-0 shadow-xs"
+                        >
+                          Đến trang Quản trị Key →
+                        </Link>
+                      </div>
+                    )}
                   </div>
                 </section>
               </div>
