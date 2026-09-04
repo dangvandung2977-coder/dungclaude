@@ -21,6 +21,7 @@ import { useToast, ConfirmModal } from "@/components/ui/primitives";
 import type { AIModel, Message, ReasoningEffort } from "@/types";
 import { useSession } from "@/hooks/useSession";
 import { cn } from "@/lib/utils";
+import { getDefaultReasoningEffort } from "@/lib/ai/reasoning";
 
 function formatSize(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -242,13 +243,62 @@ export function ChatView({
     [safeModels]
   );
 
+  const resolveConversationEffort = useCallback(
+    (convId: string | null | undefined, targetModelId: string): ReasoningEffort => {
+      if (typeof window !== "undefined") {
+        if (convId && convId !== "new") {
+          const savedConvEffort = localStorage.getItem(`dclaude_conv_effort_${convId}`);
+          if (savedConvEffort === "low" || savedConvEffort === "medium" || savedConvEffort === "high") {
+            return savedConvEffort;
+          }
+        }
+        const savedModelEffort = localStorage.getItem(`dclaude_model_effort_${targetModelId}`);
+        if (savedModelEffort === "low" || savedModelEffort === "medium" || savedModelEffort === "high") {
+          return savedModelEffort;
+        }
+        const savedLastEffort = localStorage.getItem("dclaude_last_effort");
+        if (savedLastEffort === "low" || savedLastEffort === "medium" || savedLastEffort === "high") {
+          return savedLastEffort;
+        }
+      }
+      return getDefaultReasoningEffort(targetModelId);
+    },
+    []
+  );
+
   const [modelId, setModelId] = useState<string>(() => {
     return resolveConversationModel(initialMessages, initialModelId);
   });
 
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>(() => {
+    const initialModel = resolveConversationModel(initialMessages, initialModelId);
+    return resolveConversationEffort(conversationId, initialModel);
+  });
+  const reasoningEffortRef = useRef(reasoningEffort);
+  reasoningEffortRef.current = reasoningEffort;
+
+  const handleEffortChange = useCallback(
+    (newEffort: ReasoningEffort) => {
+      setReasoningEffort(newEffort);
+      if (typeof window !== "undefined") {
+        if (activeConvId && activeConvId !== "new") {
+          localStorage.setItem(`dclaude_conv_effort_${activeConvId}`, newEffort);
+        }
+        if (modelId) {
+          localStorage.setItem(`dclaude_model_effort_${modelId}`, newEffort);
+        }
+        localStorage.setItem("dclaude_last_effort", newEffort);
+      }
+    },
+    [activeConvId, modelId]
+  );
+
   const handleModelChange = useCallback(
     (newModelId: string) => {
       setModelId(newModelId);
+      const targetEffort = resolveConversationEffort(activeConvId, newModelId);
+      setReasoningEffort(targetEffort);
+
       if (typeof window !== "undefined") {
         localStorage.setItem("dclaude_last_model", newModelId);
       }
@@ -261,7 +311,7 @@ export function ChatView({
         }).catch(() => {});
       }
     },
-    [activeConvId]
+    [activeConvId, resolveConversationEffort]
   );
 
   // Optimization telemetry from last response (subtle indicator, spec §27)
@@ -299,11 +349,13 @@ export function ChatView({
       setMessages(msgs);
       setActiveConvId(conversationId);
 
-      // Re-sync modelId to the exact model this conversation last used!
+      // Re-sync modelId and reasoningEffort to the exact settings this conversation used!
       const targetModel = resolveConversationModel(msgs, initialModelId);
       setModelId(targetModel);
+      const targetEffort = resolveConversationEffort(conversationId, targetModel);
+      setReasoningEffort(targetEffort);
     }
-  }, [conversationId, initialMessages, initialModelId, resolveConversationModel]);
+  }, [conversationId, initialMessages, initialModelId, resolveConversationModel, resolveConversationEffort]);
 
   const autoScrollRef = useRef(true);
   const lastScrollTopRef = useRef(0);
@@ -407,13 +459,16 @@ export function ChatView({
   useEffect(() => { activeConvIdRef.current = activeConvId; }, [activeConvId]);
 
   // Poll VPS status to recover background generation after a local network drop
+  const [isStreamingLive, setIsStreamingLive] = useState(false);
+
   const pollRecovery = useCallback(
     async (convId: string, asstId: string) => {
       setIsReconnecting(true);
+      setIsStreamingLive(false);
       setStatus("Mất kết nối mạng tạm thời · VPS vẫn đang sinh câu trả lời ngầm…");
 
       let attempts = 0;
-      const maxAttempts = 120; // 120 * 1.5s = 3 minutes of background polling
+      const maxAttempts = 300; // 300 * 400ms = 2 minutes of active real-time recovery polling
 
       const interval = setInterval(async () => {
         attempts++;
@@ -421,6 +476,7 @@ export function ChatView({
           clearInterval(interval);
           isRecoveringRef.current = false;
           setIsReconnecting(false);
+          setIsStreamingLive(false);
           setStatus("");
           return;
         }
@@ -430,16 +486,55 @@ export function ChatView({
           if (!res.ok) return; // still offline or server unavailable
           const data = await res.json();
 
-          if (data.status === "streaming" && data.text) {
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === asstId ? { ...m, content: data.text, status: "streaming" as const } : m
-              )
-            );
+          if (data.status === "streaming") {
+            setIsStreamingLive(true);
+            setStreaming(true);
+            const currentText = data.text || "";
+
+            setMessages((prev) => {
+              const idx = prev.findIndex((m) => m.id === asstId);
+              if (idx !== -1) {
+                return [
+                  ...prev.slice(0, idx),
+                  {
+                    ...prev[idx],
+                    content: currentText,
+                    status: "streaming" as const,
+                    modelId: data.modelId ?? prev[idx].modelId,
+                  },
+                  ...prev.slice(idx + 1),
+                ];
+              }
+              // If not found in current messages, append it right now so user watches it live!
+              return [
+                ...prev,
+                {
+                  id: asstId,
+                  conversationId: convId,
+                  role: "assistant",
+                  content: currentText,
+                  status: "streaming" as const,
+                  parts: [{ id: `part_${Date.now()}`, type: "text", text: currentText }],
+                  createdAt: new Date().toISOString(),
+                  modelId: data.modelId,
+                },
+              ];
+            });
+
+            // Keep scrolling to bottom so user tracks it live
+            if (autoScrollRef.current && scrollRef.current) {
+              requestAnimationFrame(() => {
+                if (autoScrollRef.current && scrollRef.current) {
+                  scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+                  lastScrollTopRef.current = scrollRef.current.scrollTop;
+                }
+              });
+            }
           } else if (data.status === "completed" || data.latestMessage?.role === "assistant") {
             clearInterval(interval);
             isRecoveringRef.current = false;
             setIsReconnecting(false);
+            setIsStreamingLive(false);
             setStreaming(false);
             setStatus("");
             isGeneratingRef.current = false;
@@ -456,14 +551,20 @@ export function ChatView({
               latencyMs: data.latencyMs,
             };
 
-            setMessages((prev) =>
-              prev.map((m) => (m.id === asstId ? finalMsg : m))
-            );
+            setMessages((prev) => {
+              const idx = prev.findIndex((m) => m.id === asstId || m.id === finalMsg.id);
+              if (idx !== -1) {
+                return [...prev.slice(0, idx), finalMsg, ...prev.slice(idx + 1)];
+              }
+              return [...prev, finalMsg];
+            });
+
             toast("Đã kết nối lại · Đã nhận câu trả lời hoàn chỉnh từ VPS!", "success");
           } else if (data.status === "error") {
             clearInterval(interval);
             isRecoveringRef.current = false;
             setIsReconnecting(false);
+            setIsStreamingLive(false);
             setStreaming(false);
             setStatus("");
             isGeneratingRef.current = false;
@@ -483,7 +584,7 @@ export function ChatView({
         } catch {
           // Network still down; continue polling next tick
         }
-      }, 1500);
+      }, 400);
 
       const onOnline = () => {
         // Fast reaction when OS reports online
@@ -504,7 +605,26 @@ export function ChatView({
           isRecoveringRef.current = true;
           isGeneratingRef.current = true;
           setStreaming(true);
-          pollRecovery(activeConvId, data.messageId || `asst_bg_${Date.now()}`);
+          const targetId = data.messageId || `asst_bg_${Date.now()}`;
+          if (data.text) {
+            setMessages((prev) => {
+              if (prev.some((m) => m.id === targetId)) return prev;
+              return [
+                ...prev,
+                {
+                  id: targetId,
+                  conversationId: activeConvId,
+                  role: "assistant",
+                  content: data.text,
+                  status: "streaming" as const,
+                  parts: [{ id: `part_${Date.now()}`, type: "text", text: data.text }],
+                  createdAt: new Date().toISOString(),
+                  modelId: data.modelId,
+                },
+              ];
+            });
+          }
+          pollRecovery(activeConvId, targetId);
         }
       })
       .catch(() => {});
@@ -567,7 +687,7 @@ export function ChatView({
     }
 
     try {
-      const r = await fetch("/api/chat/stream", {
+      const fetchPayload = {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -582,7 +702,21 @@ export function ChatView({
           regenerate: Boolean(isRegenerate),
         }),
         signal: ctrl.signal,
-      });
+      };
+
+      let r: Response;
+      try {
+        r = await fetch("/api/chat/stream", fetchPayload);
+      } catch (initialErr) {
+        // Quick retry if micro-drop or server process was reloading
+        if (!isExplicitStopRef.current && (initialErr as Error)?.name !== "AbortError") {
+          await new Promise((res) => setTimeout(res, 1200));
+          if (isExplicitStopRef.current) throw initialErr;
+          r = await fetch("/api/chat/stream", fetchPayload);
+        } else {
+          throw initialErr;
+        }
+      }
 
       if (!r.ok || !r.body) {
         const j = await r.json().catch(() => ({}));
@@ -749,14 +883,24 @@ export function ChatView({
           return;
         }
 
+        const rawErr = e instanceof Error ? e.message : String(e);
+        const isNetworkErr =
+          rawErr.includes("Failed to fetch") ||
+          rawErr.includes("Load failed") ||
+          rawErr.includes("NetworkError") ||
+          rawErr.includes("network");
+        const formattedErr = isNetworkErr
+          ? "Không thể kết nối đến máy chủ (mạng chập chờn hoặc máy chủ đang tải lại). Vui lòng bấm \"Thử lại\" bên dưới."
+          : rawErr;
+
         setMessages((s) =>
           s.map((m) =>
             m.id === targetAsstId
               ? {
                   ...m,
                   content: acc
-                    ? `${acc}\n\n❌ Lỗi: ${e instanceof Error ? e.message : String(e)}`
-                    : `❌ Không gửi được: ${e instanceof Error ? e.message : String(e)}`,
+                    ? `${acc}\n\n❌ Lỗi: ${formattedErr}`
+                    : `❌ Không gửi được: ${formattedErr}`,
                   status: "error" as const,
                 }
               : m
@@ -846,7 +990,7 @@ export function ChatView({
       files: uniqueFiles,
       targetAsstId: asstId,
       tools,
-      reasoningEffort: opts.reasoningEffort,
+      reasoningEffort: opts.reasoningEffort ?? reasoningEffortRef.current,
     });
   }
 
@@ -880,6 +1024,7 @@ export function ChatView({
       files: [],
       targetAsstId: id,
       tools: [],
+      reasoningEffort: reasoningEffortRef.current,
       isRegenerate: true,
     });
   }, [scrollToBottom, toast]);
@@ -1163,19 +1308,32 @@ export function ChatView({
               </button>
             )}
 
-            {/* Reconnecting banner when local network dropped but VPS continues generating */}
+            {/* Reconnecting / Live Tracking banner */}
             {isReconnecting && (
               <div className="max-w-2xl mx-auto px-4 w-full mb-2 animate-in fade-in slide-in-from-bottom-2 duration-200">
-                <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs shadow-lg backdrop-blur-sm">
-                  <div className="relative flex h-2.5 w-2.5 shrink-0">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+                {isStreamingLive ? (
+                  <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs shadow-lg backdrop-blur-sm">
+                    <div className="relative flex h-2.5 w-2.5 shrink-0">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                    </div>
+                    <span className="flex-1 font-medium">
+                      Đã kết nối lại · Đang theo dõi trực tiếp tiến trình trả lời từ VPS…
+                    </span>
+                    <Loader2 size={13} className="animate-spin text-emerald-400 shrink-0" />
                   </div>
-                  <span className="flex-1 font-medium">
-                    Mất kết nối mạng tạm thời · VPS vẫn đang sinh câu trả lời ngầm và sẽ tự động đồng bộ khi có mạng lại...
-                  </span>
-                  <Loader2 size={13} className="animate-spin text-amber-400 shrink-0" />
-                </div>
+                ) : (
+                  <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs shadow-lg backdrop-blur-sm">
+                    <div className="relative flex h-2.5 w-2.5 shrink-0">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+                    </div>
+                    <span className="flex-1 font-medium">
+                      Mất kết nối mạng tạm thời · VPS vẫn đang sinh câu trả lời ngầm và sẽ tự động đồng bộ khi có mạng lại...
+                    </span>
+                    <Loader2 size={13} className="animate-spin text-amber-400 shrink-0" />
+                  </div>
+                )}
               </div>
             )}
 
@@ -1188,6 +1346,8 @@ export function ChatView({
               models={models}
               modelId={modelId}
               setModelId={handleModelChange}
+              reasoningEffort={reasoningEffort}
+              setReasoningEffort={handleEffortChange}
             />
           </>
         ) : (
@@ -1211,6 +1371,8 @@ export function ChatView({
                 models={models}
                 modelId={modelId}
                 setModelId={handleModelChange}
+                reasoningEffort={reasoningEffort}
+                setReasoningEffort={handleEffortChange}
               />
             </div>
 

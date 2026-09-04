@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Plus,
   ArrowUp,
@@ -35,6 +35,8 @@ interface ComposerProps {
   models: AIModel[];
   modelId: string;
   setModelId: (v: string) => void;
+  reasoningEffort?: ReasoningEffort;
+  setReasoningEffort?: (v: ReasoningEffort) => void;
   disabled?: boolean;
   variant?: "center" | "bottom";
   systemPrompt?: string;
@@ -48,6 +50,8 @@ export function Composer({
   models,
   modelId,
   setModelId,
+  reasoningEffort: reasoningEffortProp,
+  setReasoningEffort: setReasoningEffortProp,
   disabled = false,
   variant = "bottom",
 }: ComposerProps) {
@@ -58,14 +62,29 @@ export function Composer({
 
   const activeModelObj = models.find((m) => m.id === modelId);
   const isReasoning = isReasoningModel(modelId, activeModelObj?.capabilities);
-  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>(() => getDefaultReasoningEffort(modelId));
+  const [internalEffort, setInternalEffort] = useState<ReasoningEffort>(() => getDefaultReasoningEffort(modelId));
+  const activeEffort = reasoningEffortProp ?? internalEffort;
+
+  const updateEffort = useCallback(
+    (eff: ReasoningEffort) => {
+      if (setReasoningEffortProp) {
+        setReasoningEffortProp(eff);
+      } else {
+        setInternalEffort(eff);
+      }
+    },
+    [setReasoningEffortProp]
+  );
+
   const [showEffortMenu, setShowEffortMenu] = useState(false);
   const effortMenuRef = useRef<HTMLDivElement>(null);
 
-  // Auto-adjust reasoning effort whenever model changes (e.g. z-ai/glm-5.3-free -> "high")
+  // Auto-adjust reasoning effort whenever model changes if not externally managed
   useEffect(() => {
-    setReasoningEffort(getDefaultReasoningEffort(modelId));
-  }, [modelId]);
+    if (!reasoningEffortProp) {
+      setInternalEffort(getDefaultReasoningEffort(modelId));
+    }
+  }, [modelId, reasoningEffortProp]);
 
   // Click outside to close effort menu
   useEffect(() => {
@@ -219,7 +238,7 @@ export function Composer({
       onSend(effectiveText, files, {
         webSearch: mode === "cowork",
         tools: mode === "cowork" || files.length > 0,
-        reasoningEffort: isReasoning ? reasoningEffort : undefined,
+        reasoningEffort: isReasoning ? activeEffort : undefined,
       });
       setText("");
       setFiles([]);
@@ -383,9 +402,9 @@ export function Composer({
                   title="Mức độ suy luận (Reasoning Effort)"
                   className={cn(
                     "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-all cursor-pointer select-none",
-                    reasoningEffort === "high"
+                    activeEffort === "high"
                       ? "bg-purple-950/40 text-purple-300 border-purple-500/30 hover:bg-purple-900/50 hover:border-purple-500/50"
-                      : reasoningEffort === "medium"
+                      : activeEffort === "medium"
                       ? "bg-amber-950/40 text-amber-300 border-amber-500/30 hover:bg-amber-900/50 hover:border-amber-500/50"
                       : "bg-blue-950/40 text-blue-300 border-blue-500/30 hover:bg-blue-900/50 hover:border-blue-500/50"
                   )}
@@ -393,17 +412,17 @@ export function Composer({
                   <Brain
                     size={12}
                     className={cn(
-                      reasoningEffort === "high"
+                      activeEffort === "high"
                         ? "text-purple-400"
-                        : reasoningEffort === "medium"
+                        : activeEffort === "medium"
                         ? "text-amber-400"
                         : "text-blue-400"
                     )}
                   />
                   <span>
-                    {reasoningEffort === "high"
+                    {activeEffort === "high"
                       ? "Effort: Cao (Max)"
-                      : reasoningEffort === "medium"
+                      : activeEffort === "medium"
                       ? "Effort: Vừa"
                       : "Effort: Thấp"}
                   </span>
@@ -426,13 +445,13 @@ export function Composer({
                     </div>
                     <div className="space-y-0.5">
                       {REASONING_EFFORT_OPTIONS.map((opt) => {
-                        const isSelected = reasoningEffort === opt.id;
+                        const isSelected = activeEffort === opt.id;
                         return (
                           <button
                             key={opt.id}
                             type="button"
                             onClick={() => {
-                              setReasoningEffort(opt.id);
+                              updateEffort(opt.id);
                               setShowEffortMenu(false);
                             }}
                             className={cn(
