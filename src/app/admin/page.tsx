@@ -1,11 +1,19 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Check, PlugZap, Eye, EyeOff, Trash2 } from "lucide-react";
+import { Check, PlugZap, Trash2, Plus, Key } from "lucide-react";
 import Link from "next/link";
 import { Button, Input, Toggle } from "@/components/ui/primitives";
 import { cn } from "@/lib/utils";
 
-interface Provider { provider: string; enabled: boolean; baseUrl: string | null; hasKey: boolean; keyHint: string | null; fromEnv: boolean; }
+interface Provider {
+  provider: string;
+  enabled: boolean;
+  baseUrl: string | null;
+  hasKey: boolean;
+  keyHint: string | null;
+  keyHints?: string[];
+  fromEnv: boolean;
+}
 
 const META: Record<string, { name: string; hint: string }> = {
   openai: { name: "OpenAI", hint: "GPT-4o, o4-mini… Base URL mặc định api.openai.com" },
@@ -18,7 +26,6 @@ const META: Record<string, { name: string; hint: string }> = {
 export default function AdminProvidersPage() {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [keys, setKeys] = useState<Record<string, string>>({});
-  const [show, setShow] = useState<Record<string, boolean>>({});
   const [testing, setTesting] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
 
@@ -29,7 +36,17 @@ export default function AdminProvidersPage() {
   }
   useEffect(() => { load(); }, []);
 
-  async function save(p: Provider, patch: Partial<{ enabled: boolean; baseUrl: string | null; apiKey: string; clearKey: boolean }>) {
+  async function save(
+    p: Provider,
+    patch: Partial<{
+      enabled: boolean;
+      baseUrl: string | null;
+      apiKey: string;
+      addKey: string;
+      removeKeyIndex: number;
+      clearKey: boolean;
+    }>
+  ) {
     const r = await fetch("/api/admin/providers", {
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ provider: p.provider, ...patch }),
@@ -84,62 +101,81 @@ export default function AdminProvidersPage() {
                     placeholder="https://…" onBlur={(e) => { if (e.target.value !== (p.baseUrl ?? "")) save(p, { baseUrl: e.target.value || null }); }}
                   />
                 </label>
-                <div className="text-xs muted flex flex-col">
+                <div className="flex flex-col gap-2 p-3 rounded-xl bg-black/20 border border-white/[0.08]">
                   <div className="flex items-center justify-between">
-                    <span>API Key (hỗ trợ nhiều key)</span>
-                    {p.keyHint && (
-                      <span className="font-mono text-[11px] text-[#D97757] bg-[#D97757]/10 px-1.5 py-0.5 rounded">
-                        {p.keyHint}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex flex-col gap-1.5 mt-1">
-                    <div className="relative w-full">
-                      <textarea
-                        rows={show[p.provider] ? 3 : 1}
-                        placeholder={p.hasKey ? "•••••• (dán 1 hoặc nhiều key mới để thay, mỗi dòng 1 key)" : "Dán API key (mỗi key 1 dòng hoặc cách nhau dấu phẩy)…"}
-                        value={keys[p.provider] ?? ""}
-                        onChange={(e) => setKeys((s) => ({ ...s, [p.provider]: e.target.value }))}
-                        className="w-full rounded-lg border border-white/10 bg-black/20 p-2 text-xs font-mono outline-none focus:border-[#D97757]/50 resize-y"
-                        style={!show[p.provider] && (keys[p.provider]?.length ?? 0) > 0 ? { WebkitTextSecurity: "disc" } as React.CSSProperties : undefined}
-                      />
+                    <span className="text-xs font-medium text-[#ECEBE4] flex items-center gap-1.5">
+                      <Key size={13} className="text-[#D97757]" /> Danh sách API Key ({p.keyHints?.length ?? (p.hasKey ? 1 : 0)})
+                    </span>
+                    {p.hasKey && (
                       <button
                         type="button"
-                        aria-label="Hiện/ẩn key"
-                        className="absolute right-2 top-2 text-[#75736C] hover:text-white cursor-pointer"
-                        onClick={() => setShow((s) => ({ ...s, [p.provider]: !s[p.provider] }))}
+                        onClick={() => save(p, { clearKey: true })}
+                        className="text-[11px] text-red-400 hover:underline cursor-pointer flex items-center gap-1"
                       >
-                        {show[p.provider] ? <EyeOff size={14} /> : <Eye size={14} />}
+                        <Trash2 size={11} /> Xóa tất cả
                       </button>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] text-[#75736C]">
-                        💡 Tự động đổi key khi bị Rate Limit (429)
-                      </span>
-                      <div className="flex items-center gap-2">
-                        {p.hasKey && (
+                    )}
+                  </div>
+
+                  {/* Existing Keys Badges with Delete */}
+                  {p.keyHints && p.keyHints.length > 0 ? (
+                    <div className="flex flex-col gap-1.5 max-h-36 overflow-y-auto pr-1">
+                      {p.keyHints.map((hint, idx) => (
+                        <div
+                          key={idx}
+                          className="flex items-center justify-between px-2.5 py-1 rounded-lg bg-white/[0.03] border border-white/[0.06] text-xs font-mono"
+                        >
+                          <div className="flex items-center gap-2 text-[#ECEBE4]">
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#D97757]/20 text-[#D97757] font-sans font-medium">
+                              Key #{idx + 1}
+                            </span>
+                            <span>{hint}</span>
+                          </div>
                           <button
                             type="button"
-                            className="inline-flex items-center gap-1 text-xs text-red-400 hover:underline cursor-pointer"
-                            onClick={() => save(p, { clearKey: true })}
+                            onClick={() => save(p, { removeKeyIndex: idx })}
+                            title="Xóa key này"
+                            className="text-[#75736C] hover:text-red-400 p-1 cursor-pointer transition-colors"
                           >
-                            <Trash2 size={12} /> Xóa key
+                            <Trash2 size={12} />
                           </button>
-                        )}
-                        <Button
-                          variant="outline"
-                          disabled={!keys[p.provider]}
-                          onClick={() => {
-                            save(p, { apiKey: keys[p.provider] });
-                            setKeys((s) => ({ ...s, [p.provider]: "" }));
-                          }}
-                          className="text-xs h-7 px-3"
-                        >
-                          Lưu key
-                        </Button>
-                      </div>
+                        </div>
+                      ))}
                     </div>
+                  ) : (
+                    <p className="text-[11px] text-[#75736C] italic py-1">Chưa có API key nào. Nhập key bên dưới để thêm.</p>
+                  )}
+
+                  {/* Add Key Input Row with explicit "+ Thêm key" button */}
+                  <div className="flex items-center gap-2 mt-1">
+                    <Input
+                      type="password"
+                      placeholder="Dán API key mới vào đây…"
+                      value={keys[p.provider] ?? ""}
+                      onChange={(e) => setKeys((s) => ({ ...s, [p.provider]: e.target.value }))}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && keys[p.provider]?.trim()) {
+                          e.preventDefault();
+                          save(p, { addKey: keys[p.provider] });
+                          setKeys((s) => ({ ...s, [p.provider]: "" }));
+                        }
+                      }}
+                      className="text-xs font-mono h-8 flex-1"
+                    />
+                    <Button
+                      disabled={!keys[p.provider]?.trim()}
+                      onClick={() => {
+                        save(p, { addKey: keys[p.provider] });
+                        setKeys((s) => ({ ...s, [p.provider]: "" }));
+                      }}
+                      className="text-xs h-8 px-3 shrink-0"
+                    >
+                      <Plus size={13} /> Thêm key
+                    </Button>
                   </div>
+                  <span className="text-[10px] text-[#75736C]">
+                    💡 Khi 1 key bị Rate Limit (429) hoặc hết quota, hệ thống sẽ tự động đổi sang key tiếp theo.
+                  </span>
                 </div>
               </div>
             )}

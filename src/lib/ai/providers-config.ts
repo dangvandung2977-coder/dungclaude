@@ -10,6 +10,7 @@ export interface ProviderConfig {
   baseUrl: string | null;
   hasKey: boolean;
   keyHint: string | null;
+  keyHints: string[];
   fromEnv: boolean;
 }
 
@@ -61,13 +62,16 @@ function envEntry(provider: string): { key: string; baseUrl?: string } {
 export async function getProviderConfig(provider: string): Promise<ProviderConfig> {
   const row = await readRow(provider);
   const env = envEntry(provider);
+  const keys = await getProviderApiKeys(provider);
+  const keyHints = keys.map((k) => maskKey(k));
   if (row) {
     return {
       provider,
       enabled: row.enabled,
       baseUrl: row.base_url ?? env.baseUrl ?? null,
-      hasKey: Boolean(row.api_key_enc) || Boolean(env.key),
-      keyHint: row.api_key_hint ?? (env.key ? maskKey(env.key) : null),
+      hasKey: keys.length > 0,
+      keyHint: row.api_key_hint ?? (keys[0] ? maskKey(keys[0]) : null),
+      keyHints,
       fromEnv: !row.api_key_enc && Boolean(env.key),
     };
   }
@@ -75,8 +79,9 @@ export async function getProviderConfig(provider: string): Promise<ProviderConfi
     provider,
     enabled: provider === "demo" ? true : Boolean(env.key),
     baseUrl: env.baseUrl ?? null,
-    hasKey: Boolean(env.key),
-    keyHint: env.key ? maskKey(env.key) : null,
+    hasKey: keys.length > 0,
+    keyHint: keys[0] ? maskKey(keys[0]) : null,
+    keyHints,
     fromEnv: Boolean(env.key),
   };
 }
@@ -129,25 +134,42 @@ export async function listProviderConfigs(): Promise<ProviderConfig[]> {
   return Promise.all(["openai", "anthropic", "gemini", "openrouter", "demo"].map(getProviderConfig));
 }
 
-export async function setProviderConfig(provider: string, patch: { enabled?: boolean; baseUrl?: string | null; apiKey?: string | null | undefined; clearKey?: boolean }): Promise<ProviderConfig> {
+export async function setProviderConfig(
+  provider: string,
+  patch: {
+    enabled?: boolean;
+    baseUrl?: string | null;
+    apiKey?: string | null | undefined;
+    addKey?: string;
+    removeKeyIndex?: number;
+    clearKey?: boolean;
+  }
+): Promise<ProviderConfig> {
   invalidateConfigCache();
   const cur = await readRow(provider);
-  let enc: string | null = cur?.api_key_enc ?? null;
-  let hint: string | null = cur?.api_key_hint ?? null;
-  if (patch.clearKey) { enc = null; hint = null; }
-  else if (typeof patch.apiKey === "string" && patch.apiKey.length > 0) {
-    const keys = parseKeyList(patch.apiKey);
-    if (keys.length > 1) {
-      enc = encryptSecret(JSON.stringify(keys));
-      hint = formatKeyHint(keys);
-    } else if (keys.length === 1) {
-      enc = encryptSecret(keys[0]);
-      hint = formatKeyHint(keys);
-    } else {
-      enc = null;
-      hint = null;
-    }
+  let currentKeys = await getProviderApiKeys(provider);
+
+  if (patch.clearKey) {
+    currentKeys = [];
+  } else if (typeof patch.removeKeyIndex === "number" && patch.removeKeyIndex >= 0 && patch.removeKeyIndex < currentKeys.length) {
+    currentKeys.splice(patch.removeKeyIndex, 1);
+  } else if (typeof patch.addKey === "string" && patch.addKey.trim().length > 0) {
+    const toAdd = parseKeyList(patch.addKey);
+    currentKeys = Array.from(new Set([...currentKeys, ...toAdd]));
+  } else if (typeof patch.apiKey === "string") {
+    currentKeys = parseKeyList(patch.apiKey);
   }
+
+  let enc: string | null = null;
+  let hint: string | null = null;
+  if (currentKeys.length > 1) {
+    enc = encryptSecret(JSON.stringify(currentKeys));
+    hint = formatKeyHint(currentKeys);
+  } else if (currentKeys.length === 1) {
+    enc = encryptSecret(currentKeys[0]);
+    hint = formatKeyHint(currentKeys);
+  }
+
   const enabled = patch.enabled ?? cur?.enabled ?? false;
   const baseUrl = patch.baseUrl !== undefined ? patch.baseUrl : (cur?.base_url ?? null);
   const { error } = await getSupabase().from("provider_configs").upsert(

@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Plus, PlugZap, Trash2, Eye, EyeOff, Cpu } from "lucide-react";
+import { Plus, PlugZap, Trash2, Cpu } from "lucide-react";
 import { Button, Input, Toggle, Modal } from "@/components/ui/primitives";
 import { cn } from "@/lib/utils";
 
@@ -12,7 +12,7 @@ interface CModel {
 }
 interface Endpoint {
   id: string; name: string; baseUrl: string; enabled: boolean;
-  hasKey: boolean; keyHint: string | null; modelCount: number; models: CModel[];
+  hasKey: boolean; keyHint: string | null; keyHints?: string[]; modelCount: number; models: CModel[];
 }
 
 const CAPS = [
@@ -32,7 +32,6 @@ export default function AdminEndpointsPage() {
   const [epName, setEpName] = useState("");
   const [epUrl, setEpUrl] = useState("");
   const [epKey, setEpKey] = useState("");
-  const [showKey, setShowKey] = useState(false);
   const [testing, setTesting] = useState<string | null>(null);
   // add model form per endpoint
   const [addingFor, setAddingFor] = useState<string | null>(null);
@@ -209,29 +208,113 @@ export default function AdminEndpointsPage() {
           <label className="text-xs muted">Base URL (chuẩn OpenAI) *
             <Input className="mt-1 font-mono" placeholder="http://localhost:11434/v1" value={epUrl} onChange={(e) => setEpUrl(e.target.value)} />
           </label>
-          <label className="text-xs muted">API key {editingEp?.hasKey && <span className="font-mono text-[#D97757]">({editingEp.keyHint} — để trống để giữ)</span>}
-            <div className="relative mt-1">
-              <textarea
-                rows={showKey ? 3 : 2}
-                className="w-full rounded-lg border border-white/10 bg-black/20 p-2 text-xs font-mono outline-none focus:border-[#D97757]/50 resize-y"
-                placeholder={editingEp?.hasKey ? "•••••• (dán 1 hoặc nhiều key mới để thay, mỗi dòng 1 key)" : "Dán API key (mỗi dòng 1 key hoặc cách nhau dấu phẩy)…"}
+          {/* API Key Pool Section */}
+          <div className="flex flex-col gap-2 p-3 rounded-xl bg-black/20 border border-white/[0.08]">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-[#ECEBE4]">
+                Danh sách API Key ({editingEp?.keyHints?.length ?? (editingEp?.hasKey ? 1 : 0)})
+              </span>
+              {editingEp?.hasKey && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await fetch(`/api/admin/endpoints/${editingEp.id}`, {
+                      method: "PUT", headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ clearKey: true })
+                    });
+                    load();
+                    setEditingEp((prev) => prev ? { ...prev, hasKey: false, keyHint: null, keyHints: [] } : null);
+                    say("Đã xóa tất cả key của endpoint.");
+                  }}
+                  className="text-[11px] text-red-400 hover:underline cursor-pointer flex items-center gap-1"
+                >
+                  <Trash2 size={11} /> Xóa tất cả key
+                </button>
+              )}
+            </div>
+
+            {/* Existing Keys List with Delete per key */}
+            {editingEp?.keyHints && editingEp.keyHints.length > 0 ? (
+              <div className="flex flex-col gap-1.5 max-h-36 overflow-y-auto pr-1">
+                {editingEp.keyHints.map((hint, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-center justify-between px-2.5 py-1 rounded-lg bg-white/[0.03] border border-white/[0.06] text-xs font-mono"
+                  >
+                    <div className="flex items-center gap-2 text-[#ECEBE4]">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#D97757]/20 text-[#D97757] font-sans font-medium">
+                        Key #{idx + 1}
+                      </span>
+                      <span>{hint}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await fetch(`/api/admin/endpoints/${editingEp.id}`, {
+                          method: "PUT", headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ removeKeyIndex: idx })
+                        });
+                        load();
+                        const nextHints = [...(editingEp.keyHints ?? [])];
+                        nextHints.splice(idx, 1);
+                        setEditingEp((prev) => prev ? { ...prev, keyHints: nextHints, hasKey: nextHints.length > 0 } : null);
+                        say("Đã xóa key.");
+                      }}
+                      title="Xóa key này"
+                      className="text-[#75736C] hover:text-red-400 p-1 cursor-pointer transition-colors"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : editingEp ? (
+              <p className="text-[11px] text-[#75736C] italic py-1">Chưa có API key nào. Nhập key bên dưới để thêm.</p>
+            ) : null}
+
+            {/* Add Key Input with "+ Thêm key" button */}
+            <div className="flex items-center gap-2 mt-1">
+              <Input
+                type="password"
+                placeholder={editingEp ? "Dán API key mới vào đây…" : "Dán API key (có thể bỏ trống nếu local)…"}
                 value={epKey}
                 onChange={(e) => setEpKey(e.target.value)}
-                style={!showKey && epKey.length > 0 ? { WebkitTextSecurity: "disc" } as React.CSSProperties : undefined}
+                onKeyDown={async (e) => {
+                  if (e.key === "Enter" && epKey.trim() && editingEp) {
+                    e.preventDefault();
+                    await fetch(`/api/admin/endpoints/${editingEp.id}`, {
+                      method: "PUT", headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ addKey: epKey.trim() })
+                    });
+                    setEpKey("");
+                    load();
+                    say("Đã thêm key mới vào endpoint ✓");
+                  }
+                }}
+                className="text-xs font-mono h-8 flex-1"
               />
-              <button
-                type="button"
-                aria-label="Hiện/ẩn key"
-                className="absolute right-2 top-2 text-[#75736C] hover:text-white cursor-pointer"
-                onClick={() => setShowKey((s) => !s)}
-              >
-                {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
+              {editingEp && (
+                <Button
+                  disabled={!epKey.trim()}
+                  onClick={async () => {
+                    await fetch(`/api/admin/endpoints/${editingEp.id}`, {
+                      method: "PUT", headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ addKey: epKey.trim() })
+                    });
+                    setEpKey("");
+                    load();
+                    say("Đã thêm key mới vào endpoint ✓");
+                  }}
+                  className="text-xs h-8 px-3 shrink-0"
+                >
+                  <Plus size={13} /> Thêm key
+                </Button>
+              )}
             </div>
-            <span className="text-[10px] text-[#75736C] mt-1 block">
+            <span className="text-[10px] text-[#75736C]">
               💡 Hỗ trợ nhiều key: tự động đổi sang key tiếp theo khi gặp lỗi Rate Limit (429) hoặc 403.
             </span>
-          </label>
+          </div>
           <Button onClick={saveEndpoint}>{editingEp ? "Lưu" : "Thêm endpoint"}</Button>
           <p className="text-[11px] faint">Xong bước này → thêm model (api_name đúng tên phía server) → <Link href="/admin/models" className="underline">gán vào chức năng</Link>.</p>
         </div>

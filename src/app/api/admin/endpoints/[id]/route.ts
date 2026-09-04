@@ -9,6 +9,8 @@ const schema = z.object({
   name: z.string().min(1).max(80).optional(),
   baseUrl: z.string().max(300).optional(),
   apiKey: z.string().max(20000).optional(),
+  addKey: z.string().max(10000).optional(),
+  removeKeyIndex: z.number().int().min(0).optional(),
   clearKey: z.boolean().optional(),
   enabled: z.boolean().optional(),
 });

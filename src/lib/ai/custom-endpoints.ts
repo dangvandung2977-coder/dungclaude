@@ -3,7 +3,7 @@
 // Model id dạng custom:<endpointId>:<apiName> để AI Gateway định tuyến.
 // SERVER-ONLY (đọc api_key_enc giải mã) — chỉ dùng từ API routes.
 import { getSupabase, uid, nowIso, str, num, bool, nullableStr } from "@/lib/db/supabase";
-import { decryptSecret, encryptSecret } from "@/lib/security/security";
+import { decryptSecret, encryptSecret, maskKey } from "@/lib/security/security";
 import { parseKeyList, formatKeyHint } from "@/lib/ai/providers-config";
 import type { AIModel } from "@/types";
 
@@ -14,6 +14,7 @@ export interface CustomEndpoint {
   enabled: boolean;
   hasKey: boolean;
   keyHint: string | null;
+  keyHints: string[];
   modelCount: number;
   createdAt: string;
 }
@@ -37,11 +38,21 @@ export function isMissingTableError(e: unknown): boolean {
 }
 
 function mapEndpoint(r: Record<string, unknown>, modelCount = 0): CustomEndpoint {
+  const enc = nullableStr(r.api_key_enc);
+  let keyHints: string[] = [];
+  if (enc) {
+    try {
+      const dec = decryptSecret(enc);
+      const keys = parseKeyList(dec);
+      keyHints = keys.map((k) => maskKey(k));
+    } catch { /* decrypt failed */ }
+  }
   return {
     id: str(r.id), name: str(r.name), baseUrl: str(r.base_url),
     enabled: bool(r.enabled),
-    hasKey: Boolean(nullableStr(r.api_key_enc)),
+    hasKey: Boolean(enc),
     keyHint: nullableStr(r.api_key_hint),
+    keyHints,
     modelCount, createdAt: str(r.created_at),
   };
 }
@@ -111,33 +122,55 @@ export async function createEndpoint(input: { name: string; baseUrl: string; api
   return mapEndpoint(data as Record<string, unknown>);
 }
 
-export async function updateEndpoint(id: string, patch: { name?: string; baseUrl?: string; apiKey?: string; clearKey?: boolean; enabled?: boolean }): Promise<CustomEndpoint> {
+export async function updateEndpoint(id: string, patch: {
+  name?: string;
+  baseUrl?: string;
+  apiKey?: string;
+  addKey?: string;
+  removeKeyIndex?: number;
+  clearKey?: boolean;
+  enabled?: boolean;
+}): Promise<CustomEndpoint> {
   const sb = getSupabase();
   const { data: cur } = await sb.from("custom_endpoints").select("*").eq("id", id).maybeSingle();
   if (!cur) throw Object.assign(new Error("Không tìm thấy endpoint"), { status: 404 });
   const c = cur as Record<string, unknown>;
-  let enc = nullableStr(c.api_key_enc);
-  let hint = nullableStr(c.api_key_hint);
-  if (patch.clearKey) { enc = null; hint = null; }
-  else if (typeof patch.apiKey === "string" && patch.apiKey.length > 0) {
-    const keys = parseKeyList(patch.apiKey);
-    if (keys.length > 1) {
-      enc = encryptSecret(JSON.stringify(keys));
-      hint = formatKeyHint(keys);
-    } else if (keys.length === 1) {
-      enc = encryptSecret(keys[0]);
-      hint = formatKeyHint(keys);
-    } else {
-      enc = null;
-      hint = null;
-    }
+  const enc = nullableStr(c.api_key_enc);
+  let currentKeys: string[] = [];
+  if (enc) {
+    try {
+      const dec = decryptSecret(enc);
+      currentKeys = parseKeyList(dec);
+    } catch { currentKeys = []; }
   }
+
+  if (patch.clearKey) {
+    currentKeys = [];
+  } else if (typeof patch.removeKeyIndex === "number" && patch.removeKeyIndex >= 0 && patch.removeKeyIndex < currentKeys.length) {
+    currentKeys.splice(patch.removeKeyIndex, 1);
+  } else if (typeof patch.addKey === "string" && patch.addKey.trim().length > 0) {
+    const toAdd = parseKeyList(patch.addKey);
+    currentKeys = Array.from(new Set([...currentKeys, ...toAdd]));
+  } else if (typeof patch.apiKey === "string") {
+    currentKeys = parseKeyList(patch.apiKey);
+  }
+
+  let newEnc: string | null = null;
+  let newHint: string | null = null;
+  if (currentKeys.length > 1) {
+    newEnc = encryptSecret(JSON.stringify(currentKeys));
+    newHint = formatKeyHint(currentKeys);
+  } else if (currentKeys.length === 1) {
+    newEnc = encryptSecret(currentKeys[0]);
+    newHint = formatKeyHint(currentKeys);
+  }
+
   const upd: Record<string, unknown> = { updated_at: nowIso() };
   if (patch.name !== undefined) upd.name = patch.name.slice(0, 80);
   if (patch.baseUrl !== undefined) upd.base_url = patch.baseUrl.replace(/\/$/, "");
   if (patch.enabled !== undefined) upd.enabled = patch.enabled;
-  upd.api_key_enc = enc;
-  upd.api_key_hint = hint;
+  upd.api_key_enc = newEnc;
+  upd.api_key_hint = newHint;
   const { data, error } = await sb.from("custom_endpoints").update(upd).eq("id", id).select("*").single();
   if (error) throw new Error(error.message);
   const { count } = await sb.from("custom_models").select("id", { count: "exact", head: true }).eq("endpoint_id", id);
