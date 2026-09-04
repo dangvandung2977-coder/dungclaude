@@ -48,6 +48,7 @@ const schema = z.object({
   systemPrompt: z.string().max(10000).optional(),
   responseLength: z.enum(["concise", "balanced", "detailed"]).optional().default("balanced"),
   optimizationMode: z.enum(["cost_efficient", "balanced", "max_quality"]).optional(),
+  reasoningEffort: z.enum(["low", "medium", "high"]).optional(),
 });
 
 function sseEncode(type: string, data: unknown): string {
@@ -329,6 +330,7 @@ When asked to write software, build projects, or produce code:
           maxTokens: optimized.outputLimit,
           supportsStreaming,
           capabilities: modelMeta?.capabilities,
+          reasoningEffort: body.reasoningEffort,
           cb: {
             onToken: (t) => { full += t; send("token", { delta: t }); },
             onToolCall: (id, name, input) => send("tool_call", { id, name, input }),

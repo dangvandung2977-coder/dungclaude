@@ -3,6 +3,7 @@ import { modelNameOf, providerOf, parseModelRef, estimateTokens } from "./regist
 import { getProviderApiKey, getProviderApiKeys, getProviderConfig } from "./providers-config";
 import { getEndpointCredentials, getAvailableCustomModels } from "./custom-endpoints";
 import { isStreamingSupported, markStreamingUnsupported, isUpstreamUnsupportedError } from "./streaming-capabilities";
+import { getSupabase } from "@/lib/db/supabase";
 import { EnvHttpProxyAgent, setGlobalDispatcher } from "undici";
 
 // Auto-route outbound HTTP/HTTPS traffic through proxy (e.g. HTTPS_PROXY) when configured
@@ -170,6 +171,7 @@ async function callOpenAICompatible(opts: {
   baseUrl: string; apiKey: string; model: string; messages: GatewayMessage[];
   tools: GatewayTool[]; cb: StreamCallbacks; timeoutMs: number; maxTokens?: number;
   supportsStreaming?: boolean; capabilities?: string[];
+  reasoningEffort?: "low" | "medium" | "high";
 }): Promise<RawCallResult> {
   // 1. Determine if this model / endpoint supports streaming
   let isStream = opts.supportsStreaming;
@@ -190,6 +192,31 @@ async function callOpenAICompatible(opts: {
         content: m.attachments?.length ? toOpenAIContent(m.content, m.attachments) : m.content,
       })),
     };
+
+    const lowerModel = modelName.toLowerCase();
+    const isGlm53Free = lowerModel.includes("glm-5.3-free");
+    const isReasoningSupported =
+      isGlm53Free ||
+      opts.capabilities?.includes("reasoning_effort") ||
+      /(?:^|[:/_ -])(?:o[134]|deepseek-r1|deepseek-reasoner|qwq|glm-5)/i.test(lowerModel) ||
+      lowerModel.includes("glm-5") ||
+      (lowerModel.includes("thinking") && !lowerModel.includes("claude"));
+
+    // For z-ai/glm-5.3-free, default to "high" (max effort per user request)
+    const effort = opts.reasoningEffort ?? (isGlm53Free ? "high" : undefined);
+    if (isReasoningSupported && effort) {
+      body.reasoning_effort = effort;
+    }
+
+    // For OpenAI o-series: max_completion_tokens instead of max_tokens, and omit temperature
+    if (/(?:^|[:/])(?:o1|o3-mini|o4)/i.test(lowerModel)) {
+      if (body.max_tokens) {
+        body.max_completion_tokens = body.max_tokens;
+        delete body.max_tokens;
+      }
+      delete body.temperature;
+    }
+
     if (streamMode) {
       body.stream = true;
       body.stream_options = { include_usage: true };
@@ -313,7 +340,12 @@ async function callOpenAICompatible(opts: {
   };
 }
 
-async function callAnthropic(opts: { apiKey: string; model: string; messages: GatewayMessage[]; system?: string; stableSystemPrefix?: string; tools: GatewayTool[]; cb: StreamCallbacks; timeoutMs: number; maxTokens?: number }): Promise<RawCallResult> {
+async function callAnthropic(opts: {
+  apiKey: string; model: string; messages: GatewayMessage[]; system?: string;
+  stableSystemPrefix?: string; tools: GatewayTool[]; cb: StreamCallbacks;
+  timeoutMs: number; maxTokens?: number;
+  reasoningEffort?: "low" | "medium" | "high";
+}): Promise<RawCallResult> {
   // Convert to Anthropic blocks: images as base64 source, video/files as text context.
   const messages = opts.messages.filter((m) => m.role !== "system").map((m) => {
     if (!m.attachments?.length) return { role: m.role, content: m.content };
@@ -343,6 +375,18 @@ async function callAnthropic(opts: { apiKey: string; model: string; messages: Ga
         ]
       : [{ type: "text", text: opts.system }]
     : undefined;
+
+  const isThinkingModel = /claude-3-7|thinking/i.test(opts.model);
+  let thinkingConfig: { type: "enabled"; budget_tokens: number } | undefined;
+  let maxTokens = Math.max(1024, Math.min(opts.maxTokens ?? 16384, 64000));
+  if (isThinkingModel && opts.reasoningEffort) {
+    const budget = opts.reasoningEffort === "low" ? 2048 : opts.reasoningEffort === "medium" ? 8192 : 16384;
+    thinkingConfig = { type: "enabled", budget_tokens: budget };
+    if (maxTokens <= budget) {
+      maxTokens = budget + 4096;
+    }
+  }
+
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -351,7 +395,8 @@ async function callAnthropic(opts: { apiKey: string; model: string; messages: Ga
         "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true",
       },
       body: JSON.stringify({
-        model: opts.model, max_tokens: Math.max(1024, Math.min(opts.maxTokens ?? 16384, 64000)), stream: true,
+        model: opts.model, max_tokens: maxTokens, stream: true,
+        ...(thinkingConfig ? { thinking: thinkingConfig } : {}),
         system: systemBlocks, messages,
         ...(opts.tools.length ? { tools: opts.tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters })) } : {}),
       }),
@@ -361,10 +406,18 @@ async function callAnthropic(opts: { apiKey: string; model: string; messages: Ga
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buf = "", text = "", inputTokens = 0, outputTokens = 0, cachedInputTokens = 0, cacheCreationTokens = 0;
+    let inReasoning = false;
     const tools: Array<{ id: string; name: string; args: string }> = [];
     for (;;) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        if (inReasoning) {
+          inReasoning = false;
+          text += "\n</think>\n\n";
+          opts.cb.onToken("\n</think>\n\n");
+        }
+        break;
+      }
       buf += decoder.decode(value, { stream: true });
       const lines = buf.split("\n"); buf = lines.pop() ?? "";
       for (const line of lines) {
@@ -372,7 +425,25 @@ async function callAnthropic(opts: { apiKey: string; model: string; messages: Ga
         if (!s.startsWith("data:")) continue;
         try {
           const j = JSON.parse(s.slice(5).trim());
-          if (j.type === "content_block_delta" && j.delta?.type === "text_delta") { text += j.delta.text; opts.cb.onToken(j.delta.text); }
+          if (j.type === "content_block_delta") {
+            if (j.delta?.type === "thinking_delta" && j.delta.thinking) {
+              if (!inReasoning) {
+                inReasoning = true;
+                text += "<think>\n";
+                opts.cb.onToken("<think>\n");
+              }
+              text += j.delta.thinking;
+              opts.cb.onToken(j.delta.thinking);
+            } else if (j.delta?.type === "text_delta" && j.delta.text) {
+              if (inReasoning) {
+                inReasoning = false;
+                text += "\n</think>\n\n";
+                opts.cb.onToken("\n</think>\n\n");
+              }
+              text += j.delta.text;
+              opts.cb.onToken(j.delta.text);
+            }
+          }
           if (j.type === "message_start") {
             inputTokens = j.message?.usage?.input_tokens ?? 0;
             cachedInputTokens = j.message?.usage?.cache_read_input_tokens ?? 0;
@@ -631,6 +702,7 @@ export async function runGateway(opts: {
   maxTokens?: number; // dynamic output budget (optimization engine)
   supportsStreaming?: boolean;
   capabilities?: string[];
+  reasoningEffort?: "low" | "medium" | "high";
 }): Promise<GatewayResult> {
   const provider = providerOf(opts.modelId);
   const model = modelNameOf(opts.modelId);
@@ -644,6 +716,15 @@ export async function runGateway(opts: {
     if (!cred.enabled) throw new Error(`Endpoint "${cred.name}" đang tắt (admin bật tại /admin/endpoints)`);
     const keyPool = cred.keys && cred.keys.length > 0 ? cred.keys : (cred.key ? [cred.key] : []);
     if (!keyPool.length) throw new Error(`Endpoint "${cred.name}" chưa có API key`);
+
+    // Look up real api_name from custom_models to prevent slash-mangling (e.g. z-ai/glm-5.3-free)
+    let actualModel = ref.model;
+    try {
+      const sb = getSupabase();
+      const { data: mRow } = await sb.from("custom_models").select("api_name").eq("id", cModelId).maybeSingle();
+      if (mRow?.api_name) actualModel = mRow.api_name;
+    } catch { /* fallback to ref.model */ }
+
     // Fast timeout for custom endpoints (12s max) to prevent long hangs on dead servers
     const customTimeout = Math.min(config.ai.timeoutMs, 12000);
     let lastKeyErr: unknown = null;
@@ -651,11 +732,12 @@ export async function runGateway(opts: {
       const activeKey = keyPool[i];
       try {
         const first = await callOpenAICompatible({
-          baseUrl: cred.baseUrl, apiKey: activeKey, model: ref.model,
+          baseUrl: cred.baseUrl, apiKey: activeKey, model: actualModel,
           messages: [...(opts.system ? [{ role: "system" as const, content: opts.system }] : []), ...opts.messages],
           tools, cb: opts.cb, timeoutMs: customTimeout, maxTokens: opts.maxTokens,
           capabilities: opts.capabilities,
           supportsStreaming: opts.supportsStreaming,
+          reasoningEffort: opts.reasoningEffort,
         });
         return await finalizeToolLoop(first, "custom", { ...opts, modelId: cModelId });
       } catch (err) {
@@ -700,7 +782,7 @@ export async function runGateway(opts: {
       const activeKey = keyPool[i];
       try {
         if (p === "anthropic") {
-          const r = await callAnthropic({ apiKey: activeKey, model: providerModel, messages: all, system: opts.system, stableSystemPrefix: opts.stableSystemPrefix, tools, cb: opts.cb, timeoutMs: config.ai.timeoutMs, maxTokens: opts.maxTokens });
+          const r = await callAnthropic({ apiKey: activeKey, model: providerModel, messages: all, system: opts.system, stableSystemPrefix: opts.stableSystemPrefix, tools, cb: opts.cb, timeoutMs: config.ai.timeoutMs, maxTokens: opts.maxTokens, reasoningEffort: opts.reasoningEffort });
           return await finalizeToolLoop(r, p, opts);
         }
         if (p === "gemini") {
@@ -716,6 +798,7 @@ export async function runGateway(opts: {
           timeoutMs: config.ai.timeoutMs, maxTokens: opts.maxTokens,
           capabilities: opts.capabilities,
           supportsStreaming: opts.supportsStreaming,
+          reasoningEffort: opts.reasoningEffort,
         });
         return await finalizeToolLoop(first, p, opts);
       } catch (err) {

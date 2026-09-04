@@ -16,7 +16,7 @@ import { useRouter } from "next/navigation";
 import { Composer, type PendingFile } from "./Composer";
 import { MessageItem } from "./MessageItem";
 import { useToast, ConfirmModal } from "@/components/ui/primitives";
-import type { AIModel, Message } from "@/types";
+import type { AIModel, Message, ReasoningEffort } from "@/types";
 import { useSession } from "@/hooks/useSession";
 import { cn } from "@/lib/utils";
 
@@ -254,12 +254,14 @@ export function ChatView({
     files,
     targetAsstId,
     tools,
+    reasoningEffort,
     isRegenerate,
   }: {
     text: string;
     files: PendingFile[];
     targetAsstId: string;
     tools: string[];
+    reasoningEffort?: ReasoningEffort;
     isRegenerate?: boolean;
   }) => {
     if (isGeneratingRef.current) return;
@@ -301,6 +303,7 @@ export function ChatView({
           tools,
           projectId: projectId ?? undefined,
           responseLength: responseLengthRef.current,
+          reasoningEffort,
           regenerate: Boolean(isRegenerate),
         }),
         signal: ctrl.signal,
@@ -477,7 +480,7 @@ export function ChatView({
   async function send(
     text: string,
     files: PendingFile[],
-    opts: { webSearch: boolean; tools: boolean }
+    opts: { webSearch: boolean; tools: boolean; reasoningEffort?: ReasoningEffort }
   ) {
     if (isGeneratingRef.current) return;
     const tools = [
@@ -527,6 +530,7 @@ export function ChatView({
       files,
       targetAsstId: asstId,
       tools,
+      reasoningEffort: opts.reasoningEffort,
     });
   }
 

@@ -1,0 +1,52 @@
+import type { ReasoningEffort } from "@/types";
+
+/**
+ * Determines whether a model supports reasoning / thinking depth adjustments.
+ */
+export function isReasoningModel(modelId: string, capabilities?: string[]): boolean {
+  if (capabilities?.includes("reasoning_effort") || capabilities?.includes("reasoning")) return true;
+  const lower = (modelId || "").toLowerCase();
+  return (
+    /(?:^|[:/_ -])(?:o[134]|deepseek-r1|deepseek-reasoner|qwq|glm-5|claude-3-7)/i.test(lower) ||
+    lower.includes("glm-5") ||
+    lower.includes("thinking")
+  );
+}
+
+/**
+ * Returns the default reasoning effort for a model.
+ * Specially defaults to "high" (max effort) for z-ai/glm-5.3-free as requested.
+ */
+export function getDefaultReasoningEffort(modelId: string): ReasoningEffort {
+  const lower = (modelId || "").toLowerCase();
+  if (lower.includes("glm-5.3-free")) {
+    return "high";
+  }
+  return "medium";
+}
+
+export const REASONING_EFFORT_OPTIONS: Array<{
+  id: ReasoningEffort;
+  label: string;
+  shortLabel: string;
+  description: string;
+}> = [
+  {
+    id: "low",
+    label: "Thấp (Low)",
+    shortLabel: "Thấp",
+    description: "Suy luận nhanh, tiết kiệm token",
+  },
+  {
+    id: "medium",
+    label: "Vừa (Medium)",
+    shortLabel: "Vừa",
+    description: "Cân bằng giữa tốc độ và chiều sâu suy luận",
+  },
+  {
+    id: "high",
+    label: "Cao (High / Max)",
+    shortLabel: "Cao (Max)",
+    description: "Suy luận tối đa, chuyên sâu cho logic, toán & code",
+  },
+];

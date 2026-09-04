@@ -88,6 +88,8 @@ export interface AIModelCapability {
   label: string;
 }
 
+export type ReasoningEffort = "low" | "medium" | "high";
+
 export interface AIModel {
   id: string;
   provider: string;
@@ -99,6 +101,7 @@ export interface AIModel {
   enabled: boolean;
   requiresKey: boolean;
   description?: string;
+  defaultReasoningEffort?: ReasoningEffort;
 }
 
 export interface ToolDefinition {

@@ -8,10 +8,16 @@ import {
   X,
   Film,
   FileText,
+  Brain,
+  Zap,
+  Sparkles,
+  ChevronDown,
+  Check,
 } from "lucide-react";
 import { ModelSelector } from "./ModelSelector";
 import { cn, formatBytes } from "@/lib/utils";
-import type { AIModel } from "@/types";
+import type { AIModel, ReasoningEffort } from "@/types";
+import { isReasoningModel, getDefaultReasoningEffort, REASONING_EFFORT_OPTIONS } from "@/lib/ai/reasoning";
 
 export interface PendingFile {
   id: string;
@@ -23,7 +29,7 @@ export interface PendingFile {
 }
 
 interface ComposerProps {
-  onSend: (text: string, files: PendingFile[], opts: { webSearch: boolean; tools: boolean }) => void;
+  onSend: (text: string, files: PendingFile[], opts: { webSearch: boolean; tools: boolean; reasoningEffort?: ReasoningEffort }) => void;
   onStop: () => void;
   streaming: boolean;
   models: AIModel[];
@@ -49,6 +55,31 @@ export function Composer({
   const [files, setFiles] = useState<PendingFile[]>([]);
   const [uploading, setUploading] = useState(false);
   const [mode, setMode] = useState<"chat" | "cowork">("chat");
+
+  const activeModelObj = models.find((m) => m.id === modelId);
+  const isReasoning = isReasoningModel(modelId, activeModelObj?.capabilities);
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>(() => getDefaultReasoningEffort(modelId));
+  const [showEffortMenu, setShowEffortMenu] = useState(false);
+  const effortMenuRef = useRef<HTMLDivElement>(null);
+
+  // Auto-adjust reasoning effort whenever model changes (e.g. z-ai/glm-5.3-free -> "high")
+  useEffect(() => {
+    setReasoningEffort(getDefaultReasoningEffort(modelId));
+  }, [modelId]);
+
+  // Click outside to close effort menu
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (effortMenuRef.current && !effortMenuRef.current.contains(e.target as Node)) {
+        setShowEffortMenu(false);
+      }
+    }
+    if (showEffortMenu) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [showEffortMenu]);
+
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -158,7 +189,11 @@ export function Composer({
     try {
       const trimmed = text.trim();
       const effectiveText = trimmed || (files.some((f) => f.kind === "image") ? "Hãy phân tích và mô tả chi tiết nội dung bức ảnh này." : "Hãy đọc và tóm tắt nội dung tệp tin này.");
-      onSend(effectiveText, files, { webSearch: mode === "cowork", tools: mode === "cowork" || files.length > 0 });
+      onSend(effectiveText, files, {
+        webSearch: mode === "cowork",
+        tools: mode === "cowork" || files.length > 0,
+        reasoningEffort: isReasoning ? reasoningEffort : undefined,
+      });
       setText("");
       setFiles([]);
       sessionStorage.removeItem(`claude:draft:${modelId}`);
@@ -312,6 +347,118 @@ export function Composer({
                 Cowork
               </button>
             </div>
+
+            {/* Reasoning Effort Pill Toggle */}
+            {isReasoning && (
+              <div className="relative" ref={effortMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => setShowEffortMenu(!showEffortMenu)}
+                  title="Mức độ suy luận (Reasoning Effort)"
+                  className={cn(
+                    "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-all cursor-pointer select-none",
+                    reasoningEffort === "high"
+                      ? "bg-purple-950/40 text-purple-300 border-purple-500/30 hover:bg-purple-900/50 hover:border-purple-500/50"
+                      : reasoningEffort === "medium"
+                      ? "bg-amber-950/40 text-amber-300 border-amber-500/30 hover:bg-amber-900/50 hover:border-amber-500/50"
+                      : "bg-blue-950/40 text-blue-300 border-blue-500/30 hover:bg-blue-900/50 hover:border-blue-500/50"
+                  )}
+                >
+                  <Brain
+                    size={12}
+                    className={cn(
+                      reasoningEffort === "high"
+                        ? "text-purple-400"
+                        : reasoningEffort === "medium"
+                        ? "text-amber-400"
+                        : "text-blue-400"
+                    )}
+                  />
+                  <span>
+                    {reasoningEffort === "high"
+                      ? "Effort: Cao (Max)"
+                      : reasoningEffort === "medium"
+                      ? "Effort: Vừa"
+                      : "Effort: Thấp"}
+                  </span>
+                  <ChevronDown
+                    size={10}
+                    className={cn(
+                      "transition-transform duration-150 text-white/50",
+                      showEffortMenu && "rotate-180"
+                    )}
+                  />
+                </button>
+
+                {showEffortMenu && (
+                  <div className="absolute left-0 bottom-full mb-2 z-50 w-60 p-1.5 rounded-2xl bg-[#262523] border border-white/10 shadow-2xl shadow-black/80 animate-in fade-in zoom-in-95 duration-100 text-xs">
+                    <div className="px-3 py-1.5 text-[10px] font-semibold text-[#75736C] uppercase tracking-wider border-b border-white/[0.06] mb-1 flex items-center justify-between">
+                      <span>Mức độ suy luận</span>
+                      {modelId.toLowerCase().includes("glm-5.3-free") && (
+                        <span className="text-[10px] text-purple-400 font-mono">GLM 5.3 Max</span>
+                      )}
+                    </div>
+                    <div className="space-y-0.5">
+                      {REASONING_EFFORT_OPTIONS.map((opt) => {
+                        const isSelected = reasoningEffort === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => {
+                              setReasoningEffort(opt.id);
+                              setShowEffortMenu(false);
+                            }}
+                            className={cn(
+                              "w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-left transition-colors cursor-pointer",
+                              isSelected
+                                ? "bg-white/10 text-[#ECEBE4]"
+                                : "text-[#A6A49B] hover:bg-white/[0.06] hover:text-[#ECEBE4]"
+                            )}
+                          >
+                            <div>
+                              <div
+                                className={cn(
+                                  "font-medium flex items-center gap-1.5",
+                                  opt.id === "high"
+                                    ? "text-purple-300"
+                                    : opt.id === "medium"
+                                    ? "text-amber-300"
+                                    : "text-blue-300"
+                                )}
+                              >
+                                {opt.id === "high" ? (
+                                  <Sparkles size={12} />
+                                ) : opt.id === "medium" ? (
+                                  <Brain size={12} />
+                                ) : (
+                                  <Zap size={12} />
+                                )}
+                                <span>{opt.label}</span>
+                              </div>
+                              <div className="text-[10px] text-[#75736C]">{opt.description}</div>
+                            </div>
+                            {isSelected && (
+                              <Check
+                                size={12}
+                                className={cn(
+                                  "shrink-0 ml-1.5",
+                                  opt.id === "high"
+                                    ? "text-purple-400"
+                                    : opt.id === "medium"
+                                    ? "text-amber-400"
+                                    : "text-blue-400"
+                                )}
+                              />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Right Controls: Model Pill, Mic, and Send/Stop */}
