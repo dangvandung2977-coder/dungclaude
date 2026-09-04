@@ -3,6 +3,17 @@ import { modelNameOf, providerOf, parseModelRef, estimateTokens } from "./regist
 import { getProviderApiKey, getProviderApiKeys, getProviderConfig } from "./providers-config";
 import { getEndpointCredentials } from "./custom-endpoints";
 import { isStreamingSupported, markStreamingUnsupported, isUpstreamUnsupportedError } from "./streaming-capabilities";
+import { EnvHttpProxyAgent, setGlobalDispatcher } from "undici";
+
+// Auto-route outbound HTTP/HTTPS traffic through proxy (e.g. HTTPS_PROXY) when configured
+if (typeof window === "undefined") {
+  try {
+    setGlobalDispatcher(new EnvHttpProxyAgent());
+  } catch {
+    // Ignore in non-Node environments
+  }
+}
+
 
 // local alias to keep Anthropic cache-breakpoint check self-contained
 const estimateTokensStatic = estimateTokens;

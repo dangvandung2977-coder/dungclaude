@@ -64,7 +64,7 @@ describe("ChatView rendering with image parts", () => {
         <ChatView
           conversationId="conv_test"
           initialMessages={testMessages}
-          models={[{ id: "auto", name: "Auto", provider: "google", enabled: true }]}
+          models={[{ id: "auto", name: "Auto", provider: "google", enabled: true, contextWindow: 128000, capabilities: ["chat"], inputPricePerM: 0, outputPricePerM: 0, requiresKey: false }]}
         />
       );
     }).not.toThrow();

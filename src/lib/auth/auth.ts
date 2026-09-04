@@ -100,15 +100,14 @@ export async function listUsers(): Promise<Array<{ id: string; email: string; na
   const { data, error } = await sb.from("users").select("*").order("created_at", { ascending: true });
   if (error) throw new Error(error.message);
   const rows = ((data ?? []) as Array<Record<string, unknown>>);
-  const out = [];
-  for (const r of rows) {
-    const { count } = await sb.from("conversations").select("id", { count: "exact", head: true }).eq("user_id", String(r.id));
-    out.push({
-      id: String(r.id), email: String(r.email), name: (r.name as string) ?? null,
-      role: String(r.role ?? "user"), createdAt: String(r.created_at), conversations: count ?? 0,
-    });
-  }
-  return out;
+  // Đếm song song thay vì tuần tự (mỗi user 1 query HEAD nhẹ).
+  const counts = await Promise.all(
+    rows.map((r) => sb.from("conversations").select("id", { count: "exact", head: true }).eq("user_id", String(r.id)))
+  );
+  return rows.map((r, i) => ({
+    id: String(r.id), email: String(r.email), name: (r.name as string) ?? null,
+    role: String(r.role ?? "user"), createdAt: String(r.created_at), conversations: counts[i].count ?? 0,
+  }));
 }
 
 // Không có setUserRole: SINGLE-ADMIN — hệ thống chỉ có đúng 1 admin

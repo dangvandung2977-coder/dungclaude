@@ -9,11 +9,15 @@ export const runtime = "nodejs";
 export async function GET(): Promise<Response> {
   try {
     await requireAdmin();
-    const endpoints = await listEndpoints();
-    const withModels = await Promise.all(
-      endpoints.map(async (e) => ({ ...e, models: await listCustomModels(e.id) }))
-    );
-    return ok({ endpoints: withModels });
+    // 2 query song song: endpoints + toàn bộ models, rồi gộp trong JS
+    // (tránh N+1 query khi nhiều endpoint).
+    const [endpoints, allModels] = await Promise.all([listEndpoints(), listCustomModels()]);
+    const byEndpoint = new Map<string, typeof allModels>();
+    for (const m of allModels) {
+      if (!byEndpoint.has(m.endpointId)) byEndpoint.set(m.endpointId, []);
+      byEndpoint.get(m.endpointId)!.push(m);
+    }
+    return ok({ endpoints: endpoints.map((e) => ({ ...e, models: byEndpoint.get(e.id) ?? [] })) });
   } catch (e) { return httpError(e); }
 }
 

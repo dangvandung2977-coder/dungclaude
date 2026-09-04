@@ -92,12 +92,10 @@ export async function listEndpoints(): Promise<CustomEndpoint[]> {
     }
     throw e;
   }
-  const out: CustomEndpoint[] = [];
-  for (const r of rows) {
-    const { count } = await sb.from("custom_models").select("id", { count: "exact", head: true }).eq("endpoint_id", str(r.id));
-    out.push(mapEndpoint(r, count ?? 0));
-  }
-  return out;
+  const counts = await Promise.all(
+    rows.map((r) => sb.from("custom_models").select("id", { count: "exact", head: true }).eq("endpoint_id", str(r.id)))
+  );
+  return rows.map((r, i) => mapEndpoint(r, counts[i].count ?? 0));
 }
 
 export async function createEndpoint(input: { name: string; baseUrl: string; apiKey?: string; enabled?: boolean }): Promise<CustomEndpoint> {
