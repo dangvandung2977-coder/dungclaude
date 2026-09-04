@@ -62,6 +62,13 @@ export const CodeBlock = React.memo(function CodeBlock({
       ? splitHighlighted(children as React.ReactElement<{ children?: React.ReactNode }>)
       : null;
 
+  const codeScrollRef = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    if (streaming && codeScrollRef.current) {
+      codeScrollRef.current.scrollTop = codeScrollRef.current.scrollHeight;
+    }
+  }, [code, streaming]);
+
   return (
     <div className="codeblock my-3.5 rounded-lg overflow-hidden border border-[var(--cb-border)] bg-[var(--cb-bg)]">
       {/* Minimal header */}
@@ -134,6 +141,7 @@ export const CodeBlock = React.memo(function CodeBlock({
 
       {/* Body: gutter + code — gutter stays fixed while code scrolls horizontally */}
       <div
+        ref={codeScrollRef}
         className="relative font-mono text-[13px] leading-[1.6] overflow-x-auto overflow-y-auto thin-scroll max-h-[600px] cb-scroll"
         tabIndex={0}
         role="region"

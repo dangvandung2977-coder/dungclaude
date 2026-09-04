@@ -91,9 +91,14 @@ export async function POST(req: Request): Promise<Response> {
     : Promise.resolve(null);
   const attachmentsPromise = (async () => {
     const atts: VisionAttachment[] = [];
-    for (const id of body.attachmentIds) {
+    const seenSigs = new Set<string>();
+    const uniqueIds = Array.from(new Set(body.attachmentIds));
+    for (const id of uniqueIds) {
       const a = await getAttachment(id).catch(() => null);
       if (!a || a.userId !== user.id) continue;
+      const sig = `${a.fileName}-${a.sizeBytes}`;
+      if (seenSigs.has(sig)) continue;
+      seenSigs.add(sig);
       const kind = a.mimeType.startsWith("image/") ? "image" : a.mimeType.startsWith("video/") ? "video" : "file";
       let dataUrl = "";
       try {

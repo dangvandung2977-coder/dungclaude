@@ -23,6 +23,14 @@ export const ThinkingBlock = React.memo(function ThinkingBlock({
 
   const count = wordCount || (thinking ? thinking.split(/\s+/).filter(Boolean).length : 0);
 
+  const thinkingScrollRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (isThinking && expanded && thinkingScrollRef.current) {
+      thinkingScrollRef.current.scrollTop = thinkingScrollRef.current.scrollHeight;
+    }
+  }, [thinking, isThinking, expanded]);
+
   return (
     <div className="mb-2 select-none">
       {/* Subtle, minimal inline trigger (Claude-like) */}
@@ -86,7 +94,10 @@ export const ThinkingBlock = React.memo(function ThinkingBlock({
               </button>
             )}
           </div>
-          <div className="max-h-72 overflow-y-auto thin-scroll text-xs text-[#A6A49B]/90 leading-relaxed whitespace-pre-wrap font-mono pr-2">
+          <div
+            ref={thinkingScrollRef}
+            className="max-h-72 overflow-y-auto thin-scroll text-xs text-[#A6A49B]/90 leading-relaxed whitespace-pre-wrap font-mono pr-2"
+          >
             {thinking || (isThinking ? "Đang hình thành chuỗi suy luận…" : "")}
           </div>
         </div>

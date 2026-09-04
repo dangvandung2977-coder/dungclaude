@@ -191,24 +191,69 @@ export function ChatView({
     }
   }, [conversationId, initialMessages]);
 
+  const autoScrollRef = useRef(true);
+  const lastScrollTopRef = useRef(0);
+
+  const scrollToBottom = useCallback((smooth = false) => {
+    autoScrollRef.current = true;
+    setShowJump(false);
+    const container = scrollRef.current;
+    if (!container) return;
+    if (smooth) {
+      container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+    } else {
+      container.scrollTop = container.scrollHeight;
+    }
+    lastScrollTopRef.current = container.scrollTop;
+  }, []);
+
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
-    const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    isNearBottomRef.current = distanceToBottom <= 140;
-    setShowJump(distanceToBottom > 240);
+    const currentScrollTop = el.scrollTop;
+    const distanceToBottom = el.scrollHeight - currentScrollTop - el.clientHeight;
+
+    // Detect intentional user scroll UP (scrollTop decreased by user action)
+    if (currentScrollTop < lastScrollTopRef.current - 15) {
+      autoScrollRef.current = false;
+      setShowJump(true);
+    } else if (distanceToBottom <= 80) {
+      // User is at or returned near the bottom
+      autoScrollRef.current = true;
+      setShowJump(false);
+    }
+
+    lastScrollTopRef.current = currentScrollTop;
   }, []);
+
+  // Continuous auto-follow via ResizeObserver on the messages list:
+  // As tokens stream in, thinking blocks expand, or code blocks render,
+  // continuously follow the stream down unless the user intentionally scrolled up!
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+    const content = container.firstElementChild;
+    if (!content) return;
+
+    const ro = new ResizeObserver(() => {
+      if (autoScrollRef.current && scrollRef.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        lastScrollTopRef.current = scrollRef.current.scrollTop;
+      }
+    });
+    ro.observe(content);
+    return () => ro.disconnect();
+  }, [messages.length > 0]);
 
   useEffect(() => {
-    if (isNearBottomRef.current) {
-      bottomRef.current?.scrollIntoView({ behavior: streaming ? "auto" : "smooth", block: "end" });
+    if (autoScrollRef.current && scrollRef.current) {
+      requestAnimationFrame(() => {
+        if (autoScrollRef.current && scrollRef.current) {
+          scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+          lastScrollTopRef.current = scrollRef.current.scrollTop;
+        }
+      });
     }
   }, [messages, streaming, status]);
-
-  const scrollToBottom = useCallback(() => {
-    isNearBottomRef.current = true;
-    setShowJump(false);
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, []);
 
   const toggleIncognito = useCallback(() => {
     setIsIncognito((prev) => {
@@ -285,6 +330,14 @@ export function ChatView({
           m.id === currentAsstId ? { ...m, content: acc, status: "streaming" as const } : m
         )
       );
+      if (autoScrollRef.current && scrollRef.current) {
+        requestAnimationFrame(() => {
+          if (autoScrollRef.current && scrollRef.current) {
+            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+            lastScrollTopRef.current = scrollRef.current.scrollTop;
+          }
+        });
+      }
     };
 
     if (process.env.NODE_ENV !== "production") {
@@ -488,6 +541,16 @@ export function ChatView({
       ...(opts.webSearch ? ["web_search"] : []),
     ];
 
+    // Deduplicate files by id and signature to guarantee 100% no duplicate images
+    const seenFiles = new Set<string>();
+    const uniqueFiles = files.filter((f) => {
+      const sig = `${f.fileName}-${f.sizeBytes}`;
+      if (seenFiles.has(f.id) || seenFiles.has(sig)) return false;
+      seenFiles.add(f.id);
+      seenFiles.add(sig);
+      return true;
+    });
+
     const asstId = `tmp_asst_${Date.now()}`;
 
     // Optimistic user message
@@ -499,7 +562,7 @@ export function ChatView({
       status: "completed",
       parts: [
         { id: `t1_${Date.now()}`, type: "text", text },
-        ...files.map((f, i) => ({
+        ...uniqueFiles.map((f, i) => ({
           id: `tf_${i}_${Date.now()}`,
           type: (f.kind === "image" ? "image" : "file") as "image" | "file",
           url: f.url,
@@ -525,9 +588,15 @@ export function ChatView({
 
     setMessages((s) => [...s, tempUser, tempAsst]);
 
+    autoScrollRef.current = true;
+    setShowJump(false);
+    requestAnimationFrame(() => {
+      scrollToBottom(false);
+    });
+
     void executeStreamRef.current({
       text,
-      files,
+      files: uniqueFiles,
       targetAsstId: asstId,
       tools,
       reasoningEffort: opts.reasoningEffort,
@@ -553,6 +622,11 @@ export function ChatView({
           : m
       )
     );
+    autoScrollRef.current = true;
+    setShowJump(false);
+    requestAnimationFrame(() => {
+      scrollToBottom(false);
+    });
     toast("Đang tạo lại câu trả lời…", "info");
     void executeStreamRef.current({
       text: userMsg.content,
@@ -561,7 +635,7 @@ export function ChatView({
       tools: [],
       isRegenerate: true,
     });
-  }, [toast]);
+  }, [scrollToBottom, toast]);
 
   // Stable edit-and-resend for memoized MessageItem
   const handleEditMessage = useCallback((editedText: string) => {
@@ -754,7 +828,7 @@ export function ChatView({
               <button
                 type="button"
                 aria-label="Cuộn xuống"
-                onClick={scrollToBottom}
+                onClick={() => scrollToBottom(true)}
                 className="absolute bottom-28 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full bg-[#262523] text-[#ECEBE4] hover:bg-[#302E2B] transition-all cursor-pointer shadow-xl border border-white/10 flex items-center gap-1.5 text-xs font-medium animate-in fade-in slide-in-from-bottom-2 duration-150"
               >
                 <ArrowDown size={13} />

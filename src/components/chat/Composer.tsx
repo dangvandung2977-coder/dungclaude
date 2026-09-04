@@ -110,19 +110,33 @@ export function Composer({
     }
   }, [text, modelId]);
 
+  const lastPickRef = useRef<{ time: number; sig: string }>({ time: 0, sig: "" });
+
   async function pickFiles(list: FileList | File[] | null) {
     if (!list) return;
     const rawItems = Array.isArray(list) ? list : Array.from(list);
     if (!rawItems.length) return;
 
-    // Deduplicate items in the input list by name + size
+    // Deduplicate items in the input list and against files currently in state
     const seen = new Set<string>();
+    files.forEach((f) => seen.add(`${f.fileName}-${f.sizeBytes}`));
+
     const items = rawItems.filter((f) => {
       const key = `${f.name}-${f.size}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
+
+    if (items.length === 0) return;
+
+    // Debounce rapid duplicate invocations (e.g. concurrent events)
+    const currentSig = items.map((f) => `${f.name}-${f.size}`).sort().join("|");
+    const now = Date.now();
+    if (now - lastPickRef.current.time < 1000 && lastPickRef.current.sig === currentSig) {
+      return;
+    }
+    lastPickRef.current = { time: now, sig: currentSig };
 
     setUploading(true);
     try {
@@ -133,7 +147,10 @@ export function Composer({
       if (!r.ok) throw new Error(j.error ?? "Upload lỗi");
       setFiles((prev) => {
         const existingIds = new Set(prev.map((f) => f.id));
-        const newFiles = (j.files ?? []).filter((f: PendingFile) => !existingIds.has(f.id));
+        const existingSigs = new Set(prev.map((f) => `${f.fileName}-${f.sizeBytes}`));
+        const newFiles = (j.files ?? []).filter(
+          (f: PendingFile) => !existingIds.has(f.id) && !existingSigs.has(`${f.fileName}-${f.sizeBytes}`)
+        );
         return [...prev, ...newFiles];
       });
     } catch (e) {
@@ -148,13 +165,18 @@ export function Composer({
     if (!clipboardData) return;
 
     const pastedFiles: File[] = [];
+    const seenSigs = new Set<string>();
 
     // 1. Check clipboardData.files (files copied from filesystem or browser)
     if (clipboardData.files && clipboardData.files.length > 0) {
       for (let i = 0; i < clipboardData.files.length; i++) {
         const file = clipboardData.files[i];
         if (file.type.startsWith("image/") || file.type.startsWith("video/") || file.name.match(/\.(png|jpe?g|gif|webp|bmp|svg|pdf)$/i)) {
-          pastedFiles.push(file);
+          const sig = `${file.name}-${file.size}`;
+          if (!seenSigs.has(sig)) {
+            seenSigs.add(sig);
+            pastedFiles.push(file);
+          }
         }
       }
     } else if (clipboardData.items && clipboardData.items.length > 0) {
@@ -166,7 +188,11 @@ export function Composer({
           if (blob) {
             const ext = item.type.split("/")[1]?.replace("jpeg", "jpg") || "png";
             const file = new File([blob], `pasted-image-${Date.now()}.${ext}`, { type: item.type });
-            pastedFiles.push(file);
+            const sig = `${file.size}`;
+            if (!seenSigs.has(sig)) {
+              seenSigs.add(sig);
+              pastedFiles.push(file);
+            }
             break; // Stop after first screenshot blob to avoid duplicate item representations
           }
         }
@@ -175,6 +201,7 @@ export function Composer({
 
     if (pastedFiles.length > 0) {
       e.preventDefault();
+      e.stopPropagation();
       void pickFiles(pastedFiles);
     }
   }
@@ -279,7 +306,6 @@ export function Composer({
               handleSend();
             }
           }}
-          onPaste={handlePaste}
           placeholder="How can I help you today? (Dán ảnh trực tiếp Ctrl+V)"
           aria-label="Hỏi Claude"
           className={cn(
