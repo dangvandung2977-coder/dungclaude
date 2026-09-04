@@ -10,6 +10,7 @@ import {
   X,
   Trash2,
   Sparkles,
+  Check,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -148,10 +149,63 @@ export function ChatView({
   const [messages, setMessages] = useState<Message[]>(() => (Array.isArray(initialMessages) ? initialMessages : []));
   const [activeConvId, setActiveConvId] = useState(conversationId);
   const [currentTitle, setCurrentTitle] = useState(conversationTitle);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editTitleVal, setEditTitleVal] = useState(conversationTitle);
+  const titleInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (conversationTitle) setCurrentTitle(conversationTitle);
+    if (conversationTitle) {
+      setCurrentTitle(conversationTitle);
+      setEditTitleVal(conversationTitle);
+    }
   }, [conversationTitle]);
+
+  useEffect(() => {
+    if (isEditingTitle && titleInputRef.current) {
+      titleInputRef.current.focus();
+      titleInputRef.current.select();
+    }
+  }, [isEditingTitle]);
+
+  useEffect(() => {
+    const handleRenamed = (e: Event) => {
+      const detail = (e as CustomEvent<{ id: string; title: string }>).detail;
+      if (detail?.id === activeConvId && detail?.title) {
+        setCurrentTitle(detail.title);
+        setEditTitleVal(detail.title);
+      }
+    };
+    window.addEventListener("conversation:renamed", handleRenamed);
+    return () => window.removeEventListener("conversation:renamed", handleRenamed);
+  }, [activeConvId]);
+
+  const handleSaveTitle = async () => {
+    const trimmed = editTitleVal.trim();
+    setIsEditingTitle(false);
+    if (!trimmed || trimmed === currentTitle) {
+      setEditTitleVal(currentTitle);
+      return;
+    }
+    if (!activeConvId || activeConvId === "new") return;
+
+    setCurrentTitle(trimmed);
+    try {
+      await fetch(`/api/conversations/${activeConvId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: trimmed }),
+      });
+      window.dispatchEvent(
+        new CustomEvent("conversation:renamed", {
+          detail: { id: activeConvId, title: trimmed },
+        })
+      );
+      window.dispatchEvent(new CustomEvent("conversation:updated"));
+      toast("Đã đổi tên cuộc trò chuyện", "success");
+    } catch {
+      toast("Lỗi khi đổi tên cuộc trò chuyện", "error");
+    }
+  };
 
   const router = useRouter();
   const [streaming, setStreaming] = useState(false);
@@ -700,21 +754,88 @@ export function ChatView({
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
         {/* Top Header Bar (Claude Style with Incognito Button) */}
         <header className="h-12 px-5 border-b border-white/[0.06] flex items-center justify-between shrink-0 select-none">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             {hasMessages && (
               <>
-                <span className="font-serif text-sm font-semibold text-[#ECEBE4] truncate max-w-xs sm:max-w-md">
-                  {conversationTitle}
-                </span>
-                <button
-                  type="button"
-                  aria-label="Xóa đoạn chat này"
-                  title="Xóa đoạn chat này"
-                  onClick={handleDeleteChat}
-                  className="p-1 rounded-md text-[#75736C] hover:text-red-400 hover:bg-white/[0.06] transition-colors cursor-pointer ml-1"
-                >
-                  <Trash2 size={13} />
-                </button>
+                {isEditingTitle ? (
+                  <div className="flex items-center gap-1.5 max-w-xs sm:max-w-md">
+                    <input
+                      ref={titleInputRef}
+                      type="text"
+                      value={editTitleVal}
+                      onChange={(e) => setEditTitleVal(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") void handleSaveTitle();
+                        if (e.key === "Escape") {
+                          setEditTitleVal(currentTitle);
+                          setIsEditingTitle(false);
+                        }
+                      }}
+                      onBlur={() => void handleSaveTitle()}
+                      className="bg-[#262523] border border-white/20 rounded px-2 py-0.5 text-xs text-[#ECEBE4] font-medium outline-none focus:border-[#D97757] w-full"
+                      maxLength={200}
+                    />
+                    <button
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        void handleSaveTitle();
+                      }}
+                      title="Lưu (Enter)"
+                      aria-label="Lưu tên"
+                      className="p-1 rounded text-emerald-400 hover:text-emerald-300 hover:bg-white/[0.06] transition-colors cursor-pointer shrink-0"
+                    >
+                      <Check size={13} />
+                    </button>
+                    <button
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setEditTitleVal(currentTitle);
+                        setIsEditingTitle(false);
+                      }}
+                      title="Hủy (Esc)"
+                      aria-label="Hủy"
+                      className="p-1 rounded text-[#75736C] hover:text-[#ECEBE4] hover:bg-white/[0.06] transition-colors cursor-pointer shrink-0"
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1 group/title min-w-0">
+                    <span
+                      onClick={() => {
+                        setEditTitleVal(currentTitle);
+                        setIsEditingTitle(true);
+                      }}
+                      title="Bấm để đổi tên đoạn chat"
+                      className="font-serif text-sm font-semibold text-[#ECEBE4] truncate max-w-xs sm:max-w-md cursor-pointer hover:text-white transition-colors"
+                    >
+                      {currentTitle}
+                    </span>
+                    <button
+                      type="button"
+                      aria-label="Đổi tên đoạn chat"
+                      title="Đổi tên đoạn chat"
+                      onClick={() => {
+                        setEditTitleVal(currentTitle);
+                        setIsEditingTitle(true);
+                      }}
+                      className="p-1 rounded-md text-[#75736C] opacity-0 group-hover/title:opacity-100 hover:text-[#ECEBE4] hover:bg-white/[0.06] transition-all cursor-pointer shrink-0"
+                    >
+                      <Pencil size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Xóa đoạn chat này"
+                      title="Xóa đoạn chat này"
+                      onClick={handleDeleteChat}
+                      className="p-1 rounded-md text-[#75736C] hover:text-red-400 hover:bg-white/[0.06] transition-colors cursor-pointer shrink-0 ml-0.5"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                )}
               </>
             )}
           </div>

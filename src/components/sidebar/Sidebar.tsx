@@ -16,6 +16,8 @@ import {
   Trash2,
   X,
   ShieldCheck,
+  Pencil,
+  Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Conversation } from "@/types";
@@ -27,6 +29,7 @@ interface SidebarProps {
   onNew: () => void;
   onChanged: () => void;
   onDelete?: (id: string) => void;
+  onRename?: (id: string, newTitle: string) => void;
   open: boolean;
   onClose: () => void;
 }
@@ -36,6 +39,7 @@ export function Sidebar({
   onNew,
   onChanged,
   onDelete,
+  onRename,
   open,
   onClose,
 }: SidebarProps) {
@@ -44,6 +48,49 @@ export function Sidebar({
   const { user } = useSession();
   const [query, setQuery] = useState("");
   const [showSearch, setShowSearch] = useState(false);
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const editInputRef = React.useRef<HTMLInputElement>(null);
+
+  function startRename(id: string, current: string) {
+    setEditingId(id);
+    setEditTitle(current);
+  }
+
+  useEffect(() => {
+    if (editingId && editInputRef.current) {
+      editInputRef.current.focus();
+      editInputRef.current.select();
+    }
+  }, [editingId]);
+
+  function handleSaveRename(id: string) {
+    const trimmed = editTitle.trim();
+    setEditingId(null);
+    if (!trimmed) return;
+    const current = conversations.find((c) => c.id === id);
+    if (current && current.title === trimmed) return;
+
+    if (onRename) {
+      onRename(id, trimmed);
+    } else {
+      fetch(`/api/conversations/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: trimmed }),
+      }).catch(() => {});
+      onChanged();
+    }
+    window.dispatchEvent(
+      new CustomEvent("conversation:renamed", { detail: { id, title: trimmed } })
+    );
+  }
+
+  function handleCancelRename() {
+    setEditingId(null);
+    setEditTitle("");
+  }
 
   // Global ⌘N / Ctrl+N shortcut for new chat
   useEffect(() => {
@@ -254,6 +301,57 @@ export function Sidebar({
             {filtered.map((c) => {
               const isActive = pathname.includes(c.id);
 
+              if (editingId === c.id) {
+                return (
+                  <div
+                    key={c.id}
+                    className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-[#262523] border border-white/20 text-xs my-0.5"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                  >
+                    <input
+                      ref={editInputRef}
+                      type="text"
+                      value={editTitle}
+                      onChange={(e) => setEditTitle(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleSaveRename(c.id);
+                        if (e.key === "Escape") handleCancelRename();
+                      }}
+                      onBlur={() => handleSaveRename(c.id)}
+                      className="flex-1 bg-transparent text-xs text-[#ECEBE4] outline-none min-w-0 px-1 py-0.5"
+                      maxLength={200}
+                    />
+                    <button
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        handleSaveRename(c.id);
+                      }}
+                      title="Lưu (Enter)"
+                      aria-label="Lưu tên"
+                      className="p-1 text-emerald-400 hover:text-emerald-300 transition-colors cursor-pointer shrink-0"
+                    >
+                      <Check size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        handleCancelRename();
+                      }}
+                      title="Hủy (Esc)"
+                      aria-label="Hủy"
+                      className="p-1 text-[#75736C] hover:text-[#ECEBE4] transition-colors cursor-pointer shrink-0"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                );
+              }
+
               return (
                 <div
                   key={c.id}
@@ -281,7 +379,20 @@ export function Sidebar({
                   </Link>
 
                   {/* Hover Quick Actions */}
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                    <button
+                      type="button"
+                      aria-label="Đổi tên"
+                      title="Đổi tên"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        startRename(c.id, c.title);
+                      }}
+                      className="p-1 text-[#75736C] hover:text-[#ECEBE4] cursor-pointer"
+                    >
+                      <Pencil size={11} />
+                    </button>
                     <button
                       type="button"
                       aria-label="Ghim"

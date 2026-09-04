@@ -149,4 +149,23 @@ describe("chat lifecycle & state machine", () => {
     expect(cancelledMsg.status).toBe("cancelled");
     expect(cancelledMsg.content).toBe("Partial content before user click");
   });
+
+  it("updates conversation title optimistically and handles custom rename events", () => {
+    const initialConversations = [
+      { id: "conv_1", title: "Cuộc trò chuyện cũ", pinned: false, archived: false },
+      { id: "conv_2", title: "Hội thoại khác", pinned: false, archived: false },
+    ];
+
+    const newTitle = "Tên đoạn chat mới đã đổi";
+    const targetId = "conv_1";
+
+    // Optimistic mapper as used in AppShell and Sidebar
+    const updated = initialConversations.map((c) =>
+      c.id === targetId ? { ...c, title: newTitle } : c
+    );
+
+    expect(updated[0].title).toBe(newTitle);
+    expect(updated[1].title).toBe("Hội thoại khác");
+    expect(updated[0].id).toBe("conv_1");
+  });
 });

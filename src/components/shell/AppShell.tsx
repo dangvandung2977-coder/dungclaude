@@ -30,6 +30,20 @@ export function AppShell({
     });
   }, [refresh]);
 
+  const handleRenameConversation = useCallback((id: string, newTitle: string) => {
+    // Instant optimistic update: update conversation title in 0ms!
+    setConversations((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, title: newTitle } : c))
+    );
+    fetch(`/api/conversations/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: newTitle }),
+    }).catch(() => {
+      refresh();
+    });
+  }, [refresh]);
+
   useEffect(() => {
     setConversations(initialConversations);
   }, [initialConversations]);
@@ -65,11 +79,21 @@ export function AppShell({
 
     const handleUpdate = () => refresh();
 
+    const handleRenamed = (e: Event) => {
+      const detail = (e as CustomEvent<{ id: string; title: string }>).detail;
+      if (!detail?.id || !detail?.title) return;
+      setConversations((prev) =>
+        prev.map((c) => (c.id === detail.id ? { ...c, title: detail.title } : c))
+      );
+    };
+
     window.addEventListener("conversation:created", handleCreated);
     window.addEventListener("conversation:updated", handleUpdate);
+    window.addEventListener("conversation:renamed", handleRenamed);
     return () => {
       window.removeEventListener("conversation:created", handleCreated);
       window.removeEventListener("conversation:updated", handleUpdate);
+      window.removeEventListener("conversation:renamed", handleRenamed);
     };
   }, [refresh]);
 
@@ -81,6 +105,7 @@ export function AppShell({
         onNew={newChat}
         onChanged={refresh}
         onDelete={handleDeleteConversation}
+        onRename={handleRenameConversation}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
       />
