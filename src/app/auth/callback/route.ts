@@ -26,6 +26,9 @@ export async function GET(request: Request) {
   if (origin.startsWith("http://dungclaude.site")) {
     origin = origin.replace("http://", "https://");
   }
+  if (process.env.NODE_ENV === "production" && (origin.includes("localhost") || origin.includes("127.0.0.1"))) {
+    origin = "https://dungclaude.site";
+  }
 
   // Handle OAuth provider error (e.g. user cancelled Google sign-in)
   if (oauthError || oauthErrorDescription) {
