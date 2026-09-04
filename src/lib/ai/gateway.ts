@@ -200,7 +200,12 @@ async function callOpenAICompatible(opts: {
     try {
       const res = await fetch(`${opts.baseUrl.replace(/\/$/, "")}/chat/completions`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${opts.apiKey}` },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${opts.apiKey}`,
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36 DungClaude/1.0",
+          Accept: "application/json, text/event-stream",
+        },
         body: JSON.stringify(buildBody(streamMode, modelName)),
         signal: ctrl.signal,
       });
@@ -563,16 +568,16 @@ async function callDemo(model: string, messages: GatewayMessage[], cb: StreamCal
 function formatFriendlyGatewayError(modelId: string, err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err ?? "");
   if (/403/i.test(msg)) {
-    return `Không thể kết nối tới mô hình "${modelId}". Máy chủ API phản hồi lỗi 403 Forbidden (API Key không hợp lệ, hết hạn hoặc bị từ chối truy cập). Vui lòng kiểm tra lại endpoint trong Admin hoặc chọn model khác.`;
+    return `Không thể kết nối tới mô hình "${modelId}". Máy chủ API phản hồi lỗi 403 Forbidden (Máy chủ đích từ chối kết nối, API Key bị khóa hoặc IP bị chặn bởi Nginx/Cloudflare). Chi tiết: ${msg.slice(0, 180)}`;
   }
-  if (/429/i.test(msg) || /quota/i.test(msg)) {
+  if (/502|503|504/i.test(msg) || /bad gateway|service unavailable|gateway timeout|upstream_unsupported/i.test(msg)) {
+    return `Máy chủ upstream của mô hình "${modelId}" báo lỗi (502/503: máy chủ bên cung cấp đang bảo trì hoặc chưa hỗ trợ model ID này). Chi tiết: ${msg.slice(0, 180)}`;
+  }
+  if (/429/i.test(msg) || /quota|rate limit|too many requests|resource has been exhausted/i.test(msg)) {
     return `Mô hình "${modelId}" hiện đã vượt hạn mức sử dụng (429 Quota Exceeded / Rate Limit). Vui lòng thử lại sau giây lát hoặc chuyển sang model khác.`;
   }
   if (/401/i.test(msg) || /unauthorized/i.test(msg)) {
     return `Không thể xác thực với mô hình "${modelId}" (401 Unauthorized). API Key không đúng hoặc chưa được cấp quyền.`;
-  }
-  if (/502|503|504/i.test(msg) || /bad gateway|service unavailable|gateway timeout/i.test(msg)) {
-    return `Máy chủ upstream của mô hình "${modelId}" đang gặp sự cố (502/503/504). Vui lòng thử lại sau hoặc chuyển sang model khác.`;
   }
   return `Lỗi phản hồi từ mô hình "${modelId}": ${msg}`;
 }
@@ -691,26 +696,38 @@ export async function runGateway(opts: {
     return await attempt("demo");
   }
 
+  // If user explicitly chose a custom endpoint model, do NOT fallback to other providers (like Gemini/OpenAI), because:
+  // 1) Custom endpoints have different model weights/capabilities that cannot be transparently replaced by Gemini
+  // 2) Fallback errors (e.g. Gemini 429 quota) mask the real issue of the custom endpoint (e.g. 403 Forbidden, 502 upstream unsupported)
+  if (provider === "custom") {
+    try {
+      return await attempt("custom");
+    } catch (e) {
+      throw new Error(formatFriendlyGatewayError(opts.modelId, e));
+    }
+  }
+
   const rawOrder = [provider, ...(config.ai.fallbackEnabled ? (opts.fallbackOrder ?? config.ai.fallbackOrder).filter((x) => x !== provider) : [])];
   // Do NOT include 'demo' in fallback order for real user models — silently returning fake analysis confuses users
-  const order = rawOrder.filter((p) => p !== "demo");
+  const order = rawOrder.filter((p) => p !== "demo" && p !== "custom");
 
+  let primaryErr: unknown = null;
   let lastErr: unknown = null;
-  for (const p of order) {
-    if (p !== "custom") {
-      const cfg = await getProviderConfig(p).catch(() => null);
-      if (!cfg || !cfg.enabled || !cfg.hasKey) continue;
-    }
+  for (let i = 0; i < order.length; i++) {
+    const p = order[i];
+    const cfg = await getProviderConfig(p).catch(() => null);
+    if (!cfg || !cfg.enabled || !cfg.hasKey) continue;
     try {
       return await attempt(p);
     } catch (e) {
+      if (!primaryErr) primaryErr = e;
       lastErr = e;
       console.warn(`[AI Gateway] Provider "${p}" failed, trying next provider:`, e instanceof Error ? e.message : String(e));
     }
   }
 
-  // All real providers failed — raise clear diagnostic error
-  throw new Error(formatFriendlyGatewayError(opts.modelId, lastErr));
+  // All real providers failed — raise clear diagnostic error based on primary error chosen
+  throw new Error(formatFriendlyGatewayError(opts.modelId, primaryErr ?? lastErr));
 }
 
 async function finalizeToolLoop(
