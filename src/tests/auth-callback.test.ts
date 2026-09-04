@@ -139,4 +139,14 @@ describe("OAuth Callback Route (/auth/callback)", () => {
     expect(res.status).toBe(307);
     expect(res.headers.get("location")).toBe("http://localhost:3000/app");
   });
+
+  it("middleware intercepts ?code=... on root / and redirects to /auth/callback", async () => {
+    const { middleware } = await import("@/middleware");
+    const { NextRequest } = await import("next/server");
+    const req = new NextRequest("https://dungclaude.site/?code=google_oauth_code_123");
+    const res = middleware(req);
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toBe("https://dungclaude.site/auth/callback?code=google_oauth_code_123");
+  });
 });

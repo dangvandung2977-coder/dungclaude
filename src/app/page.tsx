@@ -1,5 +1,6 @@
 import React from "react";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import {
   ArrowRight,
   Code2,
@@ -12,7 +13,19 @@ import {
 } from "lucide-react";
 import { DungClaudeLogo } from "@/components/brand/DungClaudeLogo";
 
-export default function LandingPage() {
+export default async function LandingPage(props: {
+  searchParams?: Promise<{ code?: string; error?: string; error_description?: string; next?: string }>;
+}) {
+  const params = await props.searchParams;
+  if (params?.code) {
+    const nextParam = params.next ? `&next=${encodeURIComponent(params.next)}` : "";
+    redirect(`/auth/callback?code=${encodeURIComponent(params.code)}${nextParam}`);
+  }
+  if (params?.error || params?.error_description) {
+    const err = params.error_description || params.error || "";
+    redirect(`/login?error=${encodeURIComponent(err)}`);
+  }
+
   return (
     <div className="relative min-h-dvh flex flex-col bg-[#121110] text-[#ECEBE4] font-sans selection:bg-[#D97757]/30 selection:text-[#ECEBE4] overflow-x-hidden">
       {/* ── Dynamic Atmospheric Background Lighting & Rotating Aurora ── */}
