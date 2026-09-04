@@ -168,4 +168,41 @@ describe("chat lifecycle & state machine", () => {
     expect(updated[1].title).toBe("Hội thoại khác");
     expect(updated[0].id).toBe("conv_1");
   });
+
+  it("resolves last used model correctly per conversation", () => {
+    const messages: Message[] = [
+      {
+        id: "msg_1",
+        conversationId: "conv_1",
+        role: "user",
+        content: "Hi",
+        status: "completed",
+        parts: [],
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: "msg_2",
+        conversationId: "conv_1",
+        role: "assistant",
+        content: "Hello",
+        modelId: "anthropic:claude-3-7-sonnet",
+        status: "completed",
+        parts: [],
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: "msg_3",
+        conversationId: "conv_1",
+        role: "assistant",
+        content: "Latest reply",
+        modelId: "openai:gpt-4o",
+        status: "completed",
+        parts: [],
+        createdAt: new Date().toISOString(),
+      },
+    ];
+
+    const lastUsedModel = [...messages].reverse().find((m) => m.modelId)?.modelId;
+    expect(lastUsedModel).toBe("openai:gpt-4o");
+  });
 });

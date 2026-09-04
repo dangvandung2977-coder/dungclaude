@@ -383,6 +383,9 @@ When asked to write software, build projects, or produce code:
         });
         assistantMsgSaved = true;
         await updateMessageStats(assistantMsg.id, inTok, outTok, cost);
+        if (respondingModelId && conv.modelId !== respondingModelId) {
+          void updateConversation(conv.id, user.id, { modelId: respondingModelId }).catch(() => {});
+        }
         // Optimized usage tracking (normalized schema; falls back if migration not run)
         await recordOptimizedUsage({
           userId: user.id, conversationId: conv.id, messageId: assistantMsg.id,

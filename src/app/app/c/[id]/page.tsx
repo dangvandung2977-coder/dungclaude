@@ -20,14 +20,19 @@ export default async function ChatPage({ params }: { params: Promise<{ id: strin
 
   if (!conv) notFound();
 
+  const msgs = messages ?? [];
+  const lastMsgWithModel = [...msgs].reverse().find((m) => m.modelId);
+  const lastUsedModelId = lastMsgWithModel?.modelId || conv.modelId || null;
+
   return (
     <ChatView
       conversationId={id}
-      initialMessages={messages ?? []}
+      initialMessages={msgs}
       models={models ?? []}
       projectId={conv.projectId}
       conversationTitle={conv.title ?? "Cuộc trò chuyện"}
       pinned={conv.pinned ?? false}
+      initialModelId={lastUsedModelId}
     />
   );
 }

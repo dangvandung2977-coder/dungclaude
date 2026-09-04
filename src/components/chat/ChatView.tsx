@@ -138,6 +138,7 @@ interface ChatViewProps {
   projectId?: string | null;
   conversationTitle?: string;
   pinned?: boolean;
+  initialModelId?: string | null;
 }
 
 export function ChatView({
@@ -146,6 +147,7 @@ export function ChatView({
   models,
   projectId,
   conversationTitle = "Cuộc trò chuyện",
+  initialModelId,
 }: ChatViewProps) {
   const [messages, setMessages] = useState<Message[]>(() => (Array.isArray(initialMessages) ? initialMessages : []));
   const [activeConvId, setActiveConvId] = useState(conversationId);
@@ -212,7 +214,56 @@ export function ChatView({
   const [streaming, setStreaming] = useState(false);
   const [status, setStatus] = useState("");
   const safeModels = useMemo(() => (Array.isArray(models) ? models : []), [models]);
-  const [modelId, setModelId] = useState<string>(() => safeModels[0]?.id ?? "auto");
+
+  // Helper to determine the last used model for a conversation
+  const resolveConversationModel = useCallback(
+    (msgs: Message[], preferred?: string | null): string => {
+      // 1. If explicit preferred / conversation.modelId exists in available models
+      if (preferred && preferred !== "auto") {
+        if (safeModels.some((m) => m.id === preferred)) return preferred;
+      }
+      // 2. Look up the last message that specifies a modelId
+      const lastMsgWithModel = [...msgs].reverse().find((m) => m.modelId);
+      if (lastMsgWithModel?.modelId) {
+        if (safeModels.some((m) => m.id === lastMsgWithModel.modelId)) {
+          return lastMsgWithModel.modelId;
+        }
+      }
+      // 3. Fallback to localStorage last used model (if available and valid)
+      if (typeof window !== "undefined") {
+        const cached = localStorage.getItem("dclaude_last_model");
+        if (cached && safeModels.some((m) => m.id === cached)) {
+          return cached;
+        }
+      }
+      // 4. Default to first model
+      return safeModels[0]?.id ?? "auto";
+    },
+    [safeModels]
+  );
+
+  const [modelId, setModelId] = useState<string>(() => {
+    return resolveConversationModel(initialMessages, initialModelId);
+  });
+
+  const handleModelChange = useCallback(
+    (newModelId: string) => {
+      setModelId(newModelId);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("dclaude_last_model", newModelId);
+      }
+      // Persist model to the conversation record in database so it is remembered
+      if (activeConvId && activeConvId !== "new") {
+        fetch(`/api/conversations/${activeConvId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ modelId: newModelId }),
+        }).catch(() => {});
+      }
+    },
+    [activeConvId]
+  );
+
   // Optimization telemetry from last response (subtle indicator, spec §27)
   const [lastOpt, setLastOpt] = useState<{ tokensSaved: number; model: string; strategy: string; costUsd?: number; cachedInputTokens?: number } | null>(null);
   // Response length preference (concise/balanced/detailed → output budget, spec §16)
@@ -244,10 +295,15 @@ export function ChatView({
     // Only re-sync state when navigating to a different conversation
     if (currentConvIdRef.current !== conversationId) {
       currentConvIdRef.current = conversationId;
-      setMessages(Array.isArray(initialMessages) ? initialMessages : []);
+      const msgs = Array.isArray(initialMessages) ? initialMessages : [];
+      setMessages(msgs);
       setActiveConvId(conversationId);
+
+      // Re-sync modelId to the exact model this conversation last used!
+      const targetModel = resolveConversationModel(msgs, initialModelId);
+      setModelId(targetModel);
     }
-  }, [conversationId, initialMessages]);
+  }, [conversationId, initialMessages, initialModelId, resolveConversationModel]);
 
   const autoScrollRef = useRef(true);
   const lastScrollTopRef = useRef(0);
@@ -1131,7 +1187,7 @@ export function ChatView({
               streaming={streaming}
               models={models}
               modelId={modelId}
-              setModelId={setModelId}
+              setModelId={handleModelChange}
             />
           </>
         ) : (
@@ -1154,7 +1210,7 @@ export function ChatView({
                 streaming={streaming}
                 models={models}
                 modelId={modelId}
-                setModelId={setModelId}
+                setModelId={handleModelChange}
               />
             </div>
 
