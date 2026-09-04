@@ -177,3 +177,81 @@ export function extractCodeBlocks(markdown: string): ExtractedCodeFile[] {
 
   return files;
 }
+
+/**
+ * Determines whether an assistant response represents a genuine "large project" (dự án lớn)
+ * that warrants offering a downloadable ZIP bundle.
+ *
+ * Rules:
+ * 1. Filter out command-line / terminal blocks (sh, bash, shell, terminal, cmd, powershell).
+ * 2. Must have at least 3 distinct real code files (or 2 substantial files when project
+ *    manifest/entrypoint files like package.json, index.html, main.py are present).
+ * 3. Total lines of non-empty code across project files must be substantial (>= 60 lines).
+ * 4. Content or files should indicate project structure (mentions "dự án", "project",
+ *    "cấu trúc thư mục", "full stack", or contains manifest files).
+ * 5. Rejects casual snippets, before/after comparisons, and small examples.
+ */
+export function isLargeProject(files: ExtractedCodeFile[], content: string): boolean {
+  if (!files || files.length < 2) return false;
+
+  const SHELL_LANGS = new Set([
+    "bash", "sh", "shell", "zsh", "powershell", "cmd", "terminal", "console",
+  ]);
+
+  // Filter out pure command/terminal blocks
+  const realCodeFiles = files.filter(
+    (f) => !SHELL_LANGS.has(f.language.toLowerCase()) && f.code.trim().length > 10
+  );
+
+  // If there are less than 2 real code files after removing shell snippets, not a multi-file project
+  if (realCodeFiles.length < 2) return false;
+
+  // Count total non-empty lines of code across real files
+  let totalLines = 0;
+  for (const f of realCodeFiles) {
+    const lines = f.code.split(/\r?\n/).filter((l) => l.trim().length > 0).length;
+    totalLines += lines;
+  }
+
+  // Small snippets (< 60 total lines of code) are definitely NOT a large project
+  if (totalLines < 60) return false;
+
+  const lowerContent = content.toLowerCase();
+
+  // Project indicator signals
+  const projectKeywords = [
+    "dự án", "project", "cấu trúc", "thư mục", "repository", "repo",
+    "full stack", "fullstack", "trọn bộ", "source code", "mã nguồn",
+    "directory structure", "file structure", "các file trong", "toàn bộ code",
+    "kiến trúc ứng dụng", "hệ thống",
+  ];
+  const hasProjectKeyword = projectKeywords.some((kw) => lowerContent.includes(kw));
+
+  // Check if standard project manifest files exist
+  const PROJECT_MANIFEST_FILES = [
+    "package.json", "index.html", "requirements.txt", "docker-compose.yml",
+    "dockerfile", "tsconfig.json", "vite.config", "next.config", "cargo.toml",
+    "pom.xml", "build.gradle", "go.mod",
+  ];
+  const hasManifest = realCodeFiles.some((f) =>
+    PROJECT_MANIFEST_FILES.some((mf) => f.filename.toLowerCase().includes(mf))
+  );
+
+  // If it has 3+ real code files and >= 60 lines, and has project keywords or manifest, or substantial lines (>= 90)
+  if (realCodeFiles.length >= 3 && (hasProjectKeyword || hasManifest || totalLines >= 90)) {
+    return true;
+  }
+
+  // If 2 files, only qualify if BOTH are substantial (>= 25 lines each), total >= 80 lines,
+  // AND either manifest or explicit project keyword exists
+  if (realCodeFiles.length === 2 && (hasProjectKeyword || hasManifest)) {
+    const bothSubstantial = realCodeFiles.every(
+      (f) => f.code.split(/\r?\n/).filter((l) => l.trim().length > 0).length >= 25
+    );
+    if (bothSubstantial && totalLines >= 80) {
+      return true;
+    }
+  }
+
+  return false;
+}

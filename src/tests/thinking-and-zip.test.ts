@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseThinking, extractCodeBlocks } from "@/lib/ai/thinking";
+import { parseThinking, extractCodeBlocks, isLargeProject } from "@/lib/ai/thinking";
 import { detectArtifactIntent } from "@/lib/artifacts/intent";
 import { projectZipSchema } from "@/lib/artifacts/schema";
 import JSZip from "jszip";
@@ -162,5 +162,59 @@ describe("ZIP Artifact Intent & Schema", () => {
     const parsed = projectZipSchema.parse(data);
     expect(parsed.title).toBe("my-web-app");
     expect(parsed.files).toHaveLength(2);
+  });
+
+  it("does not hijack normal code requests into artifact files", () => {
+    // Normal coding questions should return null, not zip or other artifacts
+    expect(detectArtifactIntent("viết cho tôi một hàm python để đọc file").kind).toBeNull();
+    expect(detectArtifactIntent("hướng dẫn tôi cách gộp file trong python").kind).toBeNull();
+    expect(detectArtifactIntent("viết code JavaScript xử lý sự kiện click").kind).toBeNull();
+  });
+});
+
+describe("isLargeProject Heuristic", () => {
+  it("rejects small code snippets (< 60 lines, no project structure)", () => {
+    const files = [
+      { language: "html", filename: "index.html", code: "<div>Hello</div>" },
+      { language: "css", filename: "style.css", code: "div { color: red; }" },
+    ];
+    expect(isLargeProject(files, "Dưới đây là ví dụ về HTML và CSS đơn giản:")).toBe(false);
+  });
+
+  it("rejects terminal/shell commands combined with a single code snippet", () => {
+    const files = [
+      { language: "bash", filename: "file_1.sh", code: "npm install express" },
+      { language: "javascript", filename: "index.js", code: "const express = require('express');\nconst app = express();\napp.listen(3000);" },
+    ];
+    expect(isLargeProject(files, "Chạy lệnh sau để cài đặt và sử dụng:")).toBe(false);
+  });
+
+  it("accepts a real multi-file project with 3+ files and substantial lines", () => {
+    const htmlCode = Array(35).fill("<div>Row item with content</div>").join("\n");
+    const cssCode = Array(35).fill(".row { display: flex; margin: 4px; }").join("\n");
+    const jsCode = Array(35).fill("console.log('managing application state');").join("\n");
+
+    const files = [
+      { language: "html", filename: "index.html", code: htmlCode },
+      { language: "css", filename: "style.css", code: cssCode },
+      { language: "javascript", filename: "app.js", code: jsCode },
+    ];
+
+    const content = "Dưới đây là toàn bộ mã nguồn của **dự án web bán hàng** với cấu trúc thư mục đầy đủ:";
+    expect(isLargeProject(files, content)).toBe(true);
+  });
+
+  it("accepts a 2-file project when manifest file exists and both are substantial", () => {
+    const packageJson = JSON.stringify({ name: "my-app", dependencies: { express: "^4.0.0" } }, null, 2)
+      + "\n" + Array(30).fill("// package config comment").join("\n");
+    const serverCode = Array(50).fill("app.get('/api', (req, res) => res.json({ ok: true }));").join("\n");
+
+    const files = [
+      { language: "json", filename: "package.json", code: packageJson },
+      { language: "javascript", filename: "server.js", code: serverCode },
+    ];
+
+    const content = "Dưới đây là dự án Node.js backend với package.json:";
+    expect(isLargeProject(files, content)).toBe(true);
   });
 });

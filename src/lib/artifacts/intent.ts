@@ -21,13 +21,19 @@ const KIND_PATTERNS: KindPattern[] = [
   { kind: "pptx", words: ["powerpoint", "slide", "bài thuyết trình", "bai thuyet trinh", "pptx", "ppt"], exts: ["pptx", "ppt"] },
   { kind: "xlsx", words: ["excel", "bảng tính", "bang tinh", "spreadsheet", "xlsx"], exts: ["xlsx", "xls"] },
   { kind: "pdf", words: ["pdf"], exts: ["pdf"] },
-  { kind: "md", words: ["markdown", "file md", "tập tin markdown"], exts: ["md", "markdown"] },
-  { kind: "csv", words: ["tạo csv", "tao csv", "xuất csv", "xuat csv", "tệp csv", "tập tin csv"], exts: ["csv"] },
-  { kind: "json", words: ["file json", "tập tin json", "json file"], exts: ["json"] },
-  { kind: "html", words: ["trang html", "html page", "file html", "tập tin html"], exts: ["html", "htm"] },
-  { kind: "txt", words: ["file text", "tệp text", "tập tin text", "txt file", "text file"], exts: ["txt"] },
-  { kind: "py", words: ["file python", "tệp python", "tập tin python", "tạo file py", "tệp py", "python script", "script python", "python file", "code python tải về", "code python tai ve"], exts: ["py"] },
-  { kind: "zip", words: ["file zip", "tệp zip", "tập tin zip", "tạo zip", "tao zip", "nén zip", "nen zip", "gộp zip", "gop zip", "gộp file vào zip", "gop file vao zip", "gộp file", "tải zip", "tai zip", "project zip", "dự án zip", "du an zip", "nén file", "nen file"], exts: ["zip"] },
+  { kind: "md", words: ["xuất markdown", "xuat markdown", "file markdown tải về"], exts: ["md", "markdown"] },
+  { kind: "csv", words: ["tạo csv", "tao csv", "xuất csv", "xuat csv", "tệp csv tải về", "export csv"], exts: ["csv"] },
+  {
+    kind: "zip",
+    words: [
+      "dự án zip", "du an zip", "project zip", "tạo dự án zip", "tao du an zip",
+      "tải dự án zip", "tai du an zip", "nén dự án zip", "nen du an zip",
+      "gộp dự án vào zip", "gop du an vao zip", "gộp thành file zip", "gop thanh file zip",
+      "source code zip", "mã nguồn zip", "ma nguon zip", "full project zip",
+      "dự án lớn zip", "du an lon zip", "tạo file zip dự án", "tao file zip du an",
+    ],
+    exts: ["zip"],
+  },
 ];
 
 // Marks intent: the request must ask to create/export/generate a real file,
@@ -39,8 +45,8 @@ const ACTION_WORDS = [
   "gộp", "gop", "nén", "nen", "đóng gói", "dong goi",
 ];
 
-// Explicit filename patterns: "report.docx", "baocao.xlsx", "report.pdf", "main.py", "project.zip"
-const FILENAME_RE = /([\p{L}\p{N}_-]{1,60})\.(docx|doc|pptx|ppt|xlsx|xls|pdf|md|markdown|csv|json|html?|txt|py|zip)\b/giu;
+// Explicit filename patterns: "report.docx", "baocao.xlsx", "report.pdf", "project.zip"
+const FILENAME_RE = /([\p{L}\p{N}_-]{1,60})\.(docx|doc|pptx|ppt|xlsx|xls|pdf|md|markdown|csv|zip)\b/giu;
 
 function stripAccents(s: string): string {
   // ponytail: diacritic fold via NFD — covers vi/đ/ơ/ư without a lookup table
@@ -71,25 +77,24 @@ export function detectArtifactIntent(message: string): ArtifactIntent {
   const plain = stripAccents(lower);
   const hasAction = ACTION_WORDS.some((a) => plain.includes(stripAccents(a))) || ACTION_WORDS.some((a) => lower.includes(a));
 
-  // 1. Explicit filename wins — strongest signal ("tạo report.docx")
+  const isQuestion = /\?\s*$/.test(text) || /^(cách|cach|how|làm thế nào|lam the nao|làm sao|lam sao|giải thích|giai thich)\b/i.test(plain);
+  const isCodeRequest = /\b(hàm|ham|function|script|code|đoạn code|doan code|chương trình|chuong trinh|lớp|class|module|api|thuật toán|thuat toan|sửa|fix|debug)\b/i.test(plain);
+
+  // 1. Explicit filename wins — strongest signal ("tạo report.docx", "my-project.zip")
   const fn = findFileName(lower);
   if (fn) {
     const kind = extToKind(fn.ext);
     if (kind) {
-      const isQuestion = /\?\s*$/.test(text) || /^(what|wh[ae]t|giải thích|giai thich|là gì|la gi|tại sao|tai sao)\b/i.test(plain);
-      if (!isQuestion) {
+      if (!isQuestion && (!isCodeRequest || kind === "zip")) {
         return { kind, fileName: fn.name, instruction: text };
       }
     }
-    // Filename mentioned in a question → plain chat
+    // Filename mentioned in a question or code context → plain chat
     if (kind) return { kind: null, fileName: null, instruction: text };
   }
 
-  // 2. Format word + action word ("làm slide về X", "xuất word")
-  //    But require real artifact intent: not a coding question (asking to
-  //    *write code that handles* the format), not too short.
-  const isQuestion = /\?\s*$/.test(text) || /^(cách|cach|how|làm thế nào|lam the nao|làm sao|lam sao|giải thích|giai thich)\b/i.test(plain);
-  const isCodeRequest = /\b(hàm|ham|function|script|code|đoạn code|doan code|chương trình|chuong trinh|lớp|class|module|api)\b/i.test(plain);
+  // 2. Format word + action word ("làm slide về X", "xuất word", "tạo dự án web ... zip")
+  //    Normal code requests should NEVER create standalone file artifacts.
   if (hasAction && !isQuestion) {
     for (const p of KIND_PATTERNS) {
       const words = p.words.map((w) => ({ w, plain: stripAccents(w) }));
@@ -97,9 +102,18 @@ export function detectArtifactIntent(message: string): ArtifactIntent {
         ({ w, plain: pw }) => lower.includes(w) || plain.includes(pw) || plain.includes(w)
       );
       if (hit) {
-        if (p.kind === "py" || p.kind === "zip" || !isCodeRequest) {
-          return { kind: p.kind, fileName: null, instruction: text };
+        // If it is a coding request, only create a zip file if explicitly asked for a project / large project
+        if (isCodeRequest) {
+          if (p.kind === "zip") {
+            const hasProject = /\b(dự án|du an|project|full stack|source code|mã nguồn|ma nguon)\b/i.test(plain);
+            if (hasProject) {
+              return { kind: "zip", fileName: null, instruction: text };
+            }
+          }
+          // Normal code request -> plain chat
+          continue;
         }
+        return { kind: p.kind, fileName: null, instruction: text };
       }
     }
   }

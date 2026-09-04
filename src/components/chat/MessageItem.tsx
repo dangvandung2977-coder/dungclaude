@@ -19,7 +19,7 @@ import { Markdown } from "./Markdown";
 import { CodeBlock } from "./CodeBlock";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { ProjectZipCard } from "./ProjectZipCard";
-import { parseThinking, extractCodeBlocks } from "@/lib/ai/thinking";
+import { parseThinking, extractCodeBlocks, isLargeProject } from "@/lib/ai/thinking";
 import { copyText, cn } from "@/lib/utils";
 import type { Message } from "@/types";
 
@@ -190,6 +190,10 @@ export const MessageItem = React.memo(function MessageItem({
   const codeFiles = React.useMemo(
     () => (isAssistant ? extractCodeBlocks(parsed.content || "") : []),
     [isAssistant, parsed.content]
+  );
+  const isProject = React.useMemo(
+    () => (isAssistant ? isLargeProject(codeFiles, parsed.content || "") : false),
+    [isAssistant, codeFiles, parsed.content]
   );
 
   // USER MESSAGE (Claude style: right-aligned pill bubble)
@@ -379,8 +383,8 @@ export const MessageItem = React.memo(function MessageItem({
           />
         )}
 
-        {/* Project ZIP card if response contains multiple code files */}
-        {codeFiles.length >= 2 && !streaming && (
+        {/* Project ZIP card: only show for genuine large projects */}
+        {isProject && !streaming && (
           <ProjectZipCard files={codeFiles} title="project-code" />
         )}
 
