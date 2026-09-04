@@ -179,7 +179,7 @@ export function ChatView({
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const isGeneratingRef = useRef(false);
-  const isNearBottomRef = useRef(true);
+  const hasMessages = messages.length > 0;
 
   const currentConvIdRef = useRef(conversationId);
   useEffect(() => {
@@ -242,7 +242,7 @@ export function ChatView({
     });
     ro.observe(content);
     return () => ro.disconnect();
-  }, [messages.length > 0]);
+  }, [hasMessages]);
 
   useEffect(() => {
     if (autoScrollRef.current && scrollRef.current) {
@@ -681,7 +681,6 @@ export function ChatView({
   }
 
   const username = user?.name || user?.email?.split("@")[0] || "dunggprovaidai";
-  const hasMessages = messages.length > 0;
 
   return (
     <div className="flex h-full min-h-0 relative bg-[#1F1E1D] text-[#ECEBE4] font-sans">

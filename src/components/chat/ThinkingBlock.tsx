@@ -18,11 +18,6 @@ export const ThinkingBlock = React.memo(function ThinkingBlock({
   // Default is COLLAPSED ("dấu đi") to keep chat clean and elegant
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
-
-  if (!thinking && !isThinking) return null;
-
-  const count = wordCount || (thinking ? thinking.split(/\s+/).filter(Boolean).length : 0);
-
   const thinkingScrollRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
@@ -30,6 +25,10 @@ export const ThinkingBlock = React.memo(function ThinkingBlock({
       thinkingScrollRef.current.scrollTop = thinkingScrollRef.current.scrollHeight;
     }
   }, [thinking, isThinking, expanded]);
+
+  if (!thinking && !isThinking) return null;
+
+  const count = wordCount || (thinking ? thinking.split(/\s+/).filter(Boolean).length : 0);
 
   return (
     <div className="mb-2 select-none">
