@@ -136,8 +136,8 @@ export async function POST(req: Request): Promise<Response> {
     contextThresholds: { selectTokens: 8000, summaryTokens: 20000, aggressiveTokens: 40000 },
     recentMessages: 14, maxRelevantHistory: 6, ragTopK: 5,
     routing: { qualityWeight: 0.4, speedWeight: 0.15, costWeight: 0.3, capabilityWeight: 0.15 },
-    outputLimits: { simple: 2000, normal: 4000, coding: 8000, reasoning: 16000 },
-    responseLengths: { concise: 1500, balanced: 4000, detailed: 8000 },
+    outputLimits: { simple: 4000, normal: 16000, coding: 64000, reasoning: 64000 },
+    responseLengths: { concise: 4000, balanced: 16000, detailed: 64000 },
     quotas: { dailyRequestsPerUser: 200, dailyTokensPerUser: 500000, monthlyTokensPerUser: 5000000 },
     budget: { dailyUsd: 10, warningUsd: 7, criticalUsd: 9 },
     summarization: { enabled: true, modelId: "", triggerMessageCount: 20 },
@@ -197,7 +197,17 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   // ── Optimization pipeline ──
-  const baseSystem = "You are DungClaude, a helpful, thoughtful, and highly capable AI assistant. Respond in the user's preferred language (use Vietnamese if the user writes in Vietnamese, English if in English). Use clean Markdown with syntax-highlighted code blocks.";
+  const baseSystem = `You are DungClaude, an expert AI assistant and practical coding agent. Respond in the user's preferred language (Vietnamese if the user writes in Vietnamese, English if in English).
+When asked to write software, build projects, or produce code:
+1. Act as a practical, agile coding agent: write clean, complete, and production-ready code with an organized folder layout.
+2. For all requested components or multi-file projects, produce the COMPLETE code without truncation or lazy placeholders like '// TODO' or '...rest of implementation...'.
+3. Always label every code block with its exact relative file path in the markdown fence info header, e.g.:
+   \`\`\`python:game/main.py
+   or
+   \`\`\`typescript:src/components/Header.tsx
+   This ensures that the project ZIP bundling tool accurately preserves all nested folders and filenames.
+4. Keep the solution direct and functional: do NOT generate bulky, complex test suites, mock frameworks, or unnecessary test boilerplate unless the user explicitly asks for tests. Focus directly on the working application code.
+5. Use clean Markdown formatting with clear syntax highlighting.`;
   let projectInstructions = "";
   const prj = await projectPromise;
   if (prj?.instructions) projectInstructions = `[Project instructions — always follow]:\n${prj.instructions}`;

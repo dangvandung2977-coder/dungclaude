@@ -77,8 +77,8 @@ export const OPTIMIZATION_SETTINGS_DEFAULTS = {
   maxRelevantHistory: 6,
   ragTopK: 5,
   routing: { qualityWeight: 0.4, speedWeight: 0.15, costWeight: 0.3, capabilityWeight: 0.15 },
-  outputLimits: { simple: 2000, normal: 4000, coding: 8000, reasoning: 16000 },
-  responseLengths: { concise: 1500, balanced: 4000, detailed: 8000 },
+  outputLimits: { simple: 4000, normal: 16000, coding: 64000, reasoning: 64000 },
+  responseLengths: { concise: 4000, balanced: 16000, detailed: 64000 },
   quotas: {
     dailyRequestsPerUser: 200,
     dailyTokensPerUser: 500_000,

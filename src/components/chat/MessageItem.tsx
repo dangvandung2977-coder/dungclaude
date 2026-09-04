@@ -9,6 +9,7 @@ import {
   FileText,
   Download,
   X,
+  ExternalLink,
   ThumbsUp,
   ThumbsDown,
   Wrench,
@@ -127,6 +128,91 @@ function ArtifactPreviewModal({ fileName, href, ext, onClose }: { fileName: stri
   );
 }
 
+function ImageLightboxModal({
+  url,
+  fileName,
+  onClose,
+}: {
+  url: string;
+  fileName?: string;
+  onClose: () => void;
+}) {
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/85 backdrop-blur-md p-4 sm:p-6 select-none animate-in fade-in duration-200"
+      role="dialog"
+      aria-modal="true"
+      aria-label={fileName ?? "Xem ảnh"}
+      onClick={onClose}
+    >
+      {/* Top action bar */}
+      <div
+        className="w-full max-w-5xl flex items-center justify-between mb-3 px-2 shrink-0"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="px-2.5 py-1 rounded-md text-xs font-mono text-[#ECEBE4] bg-white/10 border border-white/10 truncate max-w-xs sm:max-w-md">
+            {fileName || "image.png"}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <a
+            href={url}
+            download={fileName || "image.png"}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Tải ảnh về máy"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[#ECEBE4] bg-white/10 hover:bg-white/20 border border-white/10 transition-colors"
+          >
+            <Download size={14} />
+            <span className="hidden sm:inline">Tải về</span>
+          </a>
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Mở tab mới"
+            className="p-2 rounded-lg text-[#ECEBE4] bg-white/10 hover:bg-white/20 border border-white/10 transition-colors"
+          >
+            <ExternalLink size={15} />
+          </a>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Đóng (Esc)"
+            title="Đóng (Esc)"
+            className="flex items-center justify-center h-8 w-8 rounded-lg bg-[#D97757] hover:bg-[#E2886A] text-white shadow-md transition-all cursor-pointer hover:scale-105 active:scale-95"
+          >
+            <X size={18} strokeWidth={2.5} />
+          </button>
+        </div>
+      </div>
+
+      {/* Main Image Container */}
+      <div
+        className="relative max-w-5xl max-h-[85vh] flex items-center justify-center overflow-hidden rounded-xl border border-white/10 shadow-2xl bg-black/40"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={url}
+          alt={fileName ?? "Hình ảnh"}
+          className="max-h-[82vh] max-w-full object-contain rounded-lg"
+        />
+      </div>
+    </div>
+  );
+}
+
 const LANG_BY_EXT: Record<string, string> = {
   js: "javascript", ts: "typescript", tsx: "tsx", jsx: "jsx", py: "python",
   json: "json", sql: "sql", sh: "bash", yaml: "yaml", yml: "yaml", toml: "toml",
@@ -167,6 +253,7 @@ interface MessageItemProps {
   streaming?: boolean;
   onRegenerate?: () => void;
   onEdit?: (text: string) => void;
+  conversationTitle?: string;
 }
 
 export const MessageItem = React.memo(function MessageItem({
@@ -174,6 +261,7 @@ export const MessageItem = React.memo(function MessageItem({
   streaming = false,
   onRegenerate,
   onEdit,
+  conversationTitle,
 }: MessageItemProps) {
   const [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -182,6 +270,7 @@ export const MessageItem = React.memo(function MessageItem({
   const [isRetrying, setIsRetrying] = useState(false);
   const [showTools, setShowTools] = useState(false);
   const [preview, setPreview] = useState<{ fileName: string; href: string; ext: string } | null>(null);
+  const [lightboxImg, setLightboxImg] = useState<{ url: string; fileName?: string } | null>(null);
 
   const isAssistant = message.role === "assistant";
   const parsed = React.useMemo(
@@ -200,7 +289,14 @@ export const MessageItem = React.memo(function MessageItem({
   // USER MESSAGE (Claude style: right-aligned pill bubble)
   if (message.role === "user") {
     const safeParts = Array.isArray(message.parts) ? message.parts : [];
-    const images = safeParts.filter((p) => p && p.type === "image");
+    const seenImageKeys = new Set<string>();
+    const images = safeParts.filter((p) => {
+      if (!p || p.type !== "image") return false;
+      const key = p.fileId || p.url || p.fileName || p.id;
+      if (key && seenImageKeys.has(key)) return false;
+      if (key) seenImageKeys.add(key);
+      return true;
+    });
     const files = safeParts.filter((p) => p && p.type === "file");
 
     return (
@@ -279,12 +375,12 @@ export const MessageItem = React.memo(function MessageItem({
         {(images.length > 0 || files.length > 0) && (
           <div className="flex flex-wrap justify-end gap-2 my-2 max-w-[85%]">
             {images.map((p) => (
-              <a
-                key={p.id}
-                href={p.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="group/img relative overflow-hidden rounded-xl border border-white/10 bg-[#262523] shadow-xs transition-transform hover:scale-[1.02]"
+              <button
+                key={p.id || p.url}
+                type="button"
+                onClick={() => setLightboxImg({ url: p.url ?? "", fileName: p.fileName })}
+                aria-label={`Xem ảnh: ${p.fileName ?? "Hình ảnh"}`}
+                className="group/img relative overflow-hidden rounded-xl border border-white/10 bg-[#262523] shadow-xs transition-transform hover:scale-[1.02] cursor-zoom-in text-left"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
@@ -292,7 +388,12 @@ export const MessageItem = React.memo(function MessageItem({
                   alt={p.fileName ?? "Hình ảnh đính kèm"}
                   className="h-28 w-28 sm:h-36 sm:w-36 object-cover"
                 />
-              </a>
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center">
+                  <span className="px-2 py-1 rounded-md text-[11px] font-medium bg-black/70 text-white backdrop-blur-sm border border-white/20">
+                    Xem ảnh
+                  </span>
+                </div>
+              </button>
             ))}
 
             {files.map((p) => (
@@ -309,6 +410,14 @@ export const MessageItem = React.memo(function MessageItem({
               </div>
             ))}
           </div>
+        )}
+
+        {lightboxImg && (
+          <ImageLightboxModal
+            url={lightboxImg.url}
+            fileName={lightboxImg.fileName}
+            onClose={() => setLightboxImg(null)}
+          />
         )}
       </article>
     );
@@ -403,7 +512,7 @@ export const MessageItem = React.memo(function MessageItem({
         {/* Project ZIP card: rendered at the bottom of the response, only for real projects */}
         {isProject && !streaming && (
           <div className="mt-3">
-            <ProjectZipCard files={codeFiles} title="project-code" />
+            <ProjectZipCard files={codeFiles} title={conversationTitle || "project"} />
           </div>
         )}
 
@@ -474,6 +583,14 @@ export const MessageItem = React.memo(function MessageItem({
             href={preview.href}
             ext={preview.ext}
             onClose={() => setPreview(null)}
+          />
+        )}
+
+        {lightboxImg && (
+          <ImageLightboxModal
+            url={lightboxImg.url}
+            fileName={lightboxImg.fileName}
+            onClose={() => setLightboxImg(null)}
           />
         )}
 

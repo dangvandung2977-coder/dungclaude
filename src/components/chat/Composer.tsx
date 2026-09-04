@@ -81,8 +81,18 @@ export function Composer({
 
   async function pickFiles(list: FileList | File[] | null) {
     if (!list) return;
-    const items = Array.isArray(list) ? list : Array.from(list);
-    if (!items.length) return;
+    const rawItems = Array.isArray(list) ? list : Array.from(list);
+    if (!rawItems.length) return;
+
+    // Deduplicate items in the input list by name + size
+    const seen = new Set<string>();
+    const items = rawItems.filter((f) => {
+      const key = `${f.name}-${f.size}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
     setUploading(true);
     try {
       const fd = new FormData();
@@ -90,7 +100,11 @@ export function Composer({
       const r = await fetch("/api/files/upload", { method: "POST", body: fd });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? "Upload lỗi");
-      setFiles((prev) => [...prev, ...j.files]);
+      setFiles((prev) => {
+        const existingIds = new Set(prev.map((f) => f.id));
+        const newFiles = (j.files ?? []).filter((f: PendingFile) => !existingIds.has(f.id));
+        return [...prev, ...newFiles];
+      });
     } catch (e) {
       alert(e instanceof Error ? e.message : "Upload lỗi");
     } finally {
@@ -112,18 +126,17 @@ export function Composer({
           pastedFiles.push(file);
         }
       }
-    }
-
-    // 2. Check clipboardData.items (vital for screenshots, e.g. Snipping Tool, PrintScreen)
-    if (clipboardData.items && clipboardData.items.length > 0) {
+    } else if (clipboardData.items && clipboardData.items.length > 0) {
+      // 2. Fallback to clipboardData.items ONLY if files was empty (vital for screenshots, e.g. Snipping Tool)
       for (let i = 0; i < clipboardData.items.length; i++) {
         const item = clipboardData.items[i];
         if (item.type.startsWith("image/")) {
           const blob = item.getAsFile();
-          if (blob && !pastedFiles.some((f) => f.size === blob.size)) {
+          if (blob) {
             const ext = item.type.split("/")[1]?.replace("jpeg", "jpg") || "png";
             const file = new File([blob], `pasted-image-${Date.now()}.${ext}`, { type: item.type });
             pastedFiles.push(file);
+            break; // Stop after first screenshot blob to avoid duplicate item representations
           }
         }
       }

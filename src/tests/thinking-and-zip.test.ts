@@ -114,6 +114,53 @@ def test():
     expect(files[0].filename).toBe("main.py");
     expect(files[1].filename).toMatch(/main_2\.py|file_2\.py/);
   });
+
+  it("extracts nested subfolder paths from code fence meta or colon syntax", () => {
+    const md = `
+Dưới đây là cấu trúc dự án game:
+
+\`\`\`python:game/entities/pipe.py
+class Pipe:
+    def __init__(self):
+        self.x = 100
+\`\`\`
+
+\`\`\`python:game/entities/bird.py
+class Bird:
+    def __init__(self):
+        self.y = 50
+\`\`\`
+
+\`\`\`typescript filepath="src/components/ScoreBoard.tsx"
+export const ScoreBoard = () => <div>Score</div>;
+\`\`\`
+`;
+    const files = extractCodeBlocks(md);
+
+    expect(files).toHaveLength(3);
+    expect(files[0].filename).toBe("game/entities/pipe.py");
+    expect(files[1].filename).toBe("game/entities/bird.py");
+    expect(files[2].filename).toBe("src/components/ScoreBoard.tsx");
+  });
+
+  it("extracts subfolder paths from comment headers when meta has no filename", () => {
+    const md = `
+\`\`\`python
+# game/engine.py
+import pygame
+def run(): pass
+\`\`\`
+
+\`\`\`javascript
+// src/utils/math.js
+export const add = (a, b) => a + b;
+\`\`\`
+`;
+    const files = extractCodeBlocks(md);
+    expect(files).toHaveLength(2);
+    expect(files[0].filename).toBe("game/engine.py");
+    expect(files[1].filename).toBe("src/utils/math.js");
+  });
 });
 
 describe("ZIP Bundling with JSZip", () => {

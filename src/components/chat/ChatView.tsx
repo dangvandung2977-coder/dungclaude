@@ -147,6 +147,12 @@ export function ChatView({
 }: ChatViewProps) {
   const [messages, setMessages] = useState<Message[]>(() => (Array.isArray(initialMessages) ? initialMessages : []));
   const [activeConvId, setActiveConvId] = useState(conversationId);
+  const [currentTitle, setCurrentTitle] = useState(conversationTitle);
+
+  useEffect(() => {
+    if (conversationTitle) setCurrentTitle(conversationTitle);
+  }, [conversationTitle]);
+
   const router = useRouter();
   const [streaming, setStreaming] = useState(false);
   const [status, setStatus] = useState("");
@@ -330,6 +336,7 @@ export function ChatView({
           try {
             const j = JSON.parse(data);
             if (type === "conversation") {
+              if (j.title) setCurrentTitle(j.title);
               if (j.conversationId && (activeConvIdRef.current === "new" || activeConvIdRef.current !== j.conversationId)) {
                 currentConvIdRef.current = j.conversationId;
                 setActiveConvId(j.conversationId);
@@ -730,6 +737,7 @@ export function ChatView({
                         : undefined
                     }
                     onEdit={m.role === "user" ? handleEditMessage : undefined}
+                    conversationTitle={currentTitle}
                   />
                 ))}
 

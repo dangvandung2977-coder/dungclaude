@@ -93,15 +93,39 @@ export function parseThinking(text: string): ParsedThinking {
   };
 }
 
+export function normalizeRelPath(p: string): string {
+  return p
+    .replace(/\\/g, "/")
+    .replace(/^\.?\/+/, "")
+    .replace(/\/{2,}/g, "/")
+    .trim();
+}
+
 /**
  * Extract filename from code block meta line, e.g.
  * ```python app.py
  * ```html index.html
+ * ```python:game/engine.py
+ * ```typescript filepath="src/components/Header.tsx"
  */
 export function parseCodeFenceFilename(meta: string): string | null {
   if (!meta) return null;
-  const m = /\b([\p{L}\p{N}._-]+\.(?:py|js|jsx|ts|tsx|json|md|html?|css|scss|sql|ya?ml|csv|toml|sh|rs|go|java|kt|swift|c|h|cpp|cs|php|rb|txt|ini|dockerfile|env|xml))\b/iu.exec(meta);
-  return m ? m[1] : null;
+  const cleaned = meta.replace(/^[:\s=]+/, "").trim();
+
+  // 1. Check for attribute format: filepath="...", filename="...", path="...", title="..."
+  const attrMatch = /(?:file(?:name|path)?|title|path)=["']?([^"' \t\r\n>]+)["']?/i.exec(cleaned);
+  if (attrMatch && attrMatch[1]) {
+    return normalizeRelPath(attrMatch[1]);
+  }
+
+  // 2. Check for colon or whitespace followed by path with extension
+  // Allows letters, digits, '.', '_', '-', and '/' (subdirectories)
+  const pathMatch = /(?:^|[\s:])([\p{L}\p{N}._\-/]+\.(?:py|js|jsx|ts|tsx|json|md|html?|css|scss|sql|ya?ml|csv|toml|sh|rs|go|java|kt|swift|c|h|cpp|cs|php|rb|txt|ini|dockerfile|env|xml))\b/iu.exec(cleaned);
+  if (pathMatch && pathMatch[1]) {
+    return normalizeRelPath(pathMatch[1]);
+  }
+
+  return null;
 }
 
 /**
@@ -110,7 +134,7 @@ export function parseCodeFenceFilename(meta: string): string | null {
 export function extractCodeBlocks(markdown: string): ExtractedCodeFile[] {
   if (!markdown) return [];
 
-  const fenceRegex = /```([a-zA-Z0-9_-]+)?(?:[ \t]+([^\n\r]+))?\r?\n([\s\S]*?)```/g;
+  const fenceRegex = /```([a-zA-Z0-9_-]+)?(?::([^\s\n\r]+)|[ \t]+([^\n\r]+))?\r?\n([\s\S]*?)```/g;
   const files: ExtractedCodeFile[] = [];
   const usedNames = new Set<string>();
 
@@ -119,19 +143,19 @@ export function extractCodeBlocks(markdown: string): ExtractedCodeFile[] {
 
   while ((match = fenceRegex.exec(markdown)) !== null) {
     const rawLang = (match[1] || "").toLowerCase().trim();
-    const meta = (match[2] || "").trim();
-    const code = match[3] ?? "";
+    const meta = (match[2] || match[3] || "").trim();
+    const code = match[4] ?? "";
 
     // Don't bundle empty or single-character snippets
     if (!code.trim()) continue;
 
     let filename = parseCodeFenceFilename(meta);
 
-    // If filename wasn't in meta, check if the first line is a comment filename, e.g. // index.html or # app.py
+    // If filename wasn't in meta, check if the first line is a comment filename, e.g. // index.html or # game/pipe.py
     if (!filename) {
-      const firstLineMatch = /^(?:\/\/|#|\/\*|<!--)[ \t]*([\p{L}\p{N}._-]+\.(?:py|js|jsx|ts|tsx|json|md|html?|css|scss|sql|ya?ml|csv|toml|sh|rs|go|java|kt|swift|c|h|cpp|cs|php|rb|txt))\b/iu.exec(code.trim());
+      const firstLineMatch = /^(?:\/\/|#|\/\*|<!--)[ \t]*([\p{L}\p{N}._\-/]+\.(?:py|js|jsx|ts|tsx|json|md|html?|css|scss|sql|ya?ml|csv|toml|sh|rs|go|java|kt|swift|c|h|cpp|cs|php|rb|txt))\b/iu.exec(code.trim());
       if (firstLineMatch) {
-        filename = firstLineMatch[1];
+        filename = normalizeRelPath(firstLineMatch[1]);
       }
     }
 
@@ -151,14 +175,18 @@ export function extractCodeBlocks(markdown: string): ExtractedCodeFile[] {
       }
     }
 
-    // Ensure unique filenames
+    // Ensure unique filenames while preserving folder hierarchy
     let uniqueName = filename;
     let counter = 2;
     while (usedNames.has(uniqueName.toLowerCase())) {
-      const parts = filename.split(".");
-      if (parts.length > 1) {
-        const ext = parts.pop();
-        uniqueName = `${parts.join(".")}_${counter}.${ext}`;
+      const lastSlash = filename.lastIndexOf("/");
+      const dir = lastSlash !== -1 ? filename.slice(0, lastSlash + 1) : "";
+      const baseFile = lastSlash !== -1 ? filename.slice(lastSlash + 1) : filename;
+      const dotIndex = baseFile.lastIndexOf(".");
+      if (dotIndex > 0) {
+        const namePart = baseFile.slice(0, dotIndex);
+        const ext = baseFile.slice(dotIndex);
+        uniqueName = `${dir}${namePart}_${counter}${ext}`;
       } else {
         uniqueName = `${filename}_${counter}`;
       }
@@ -179,15 +207,8 @@ export function extractCodeBlocks(markdown: string): ExtractedCodeFile[] {
 }
 
 /**
- * Determines whether an assistant response represents a genuine "large project" (dự án lớn)
+ * Determines whether an assistant response represents a genuine project
  * that warrants offering a downloadable ZIP bundle.
- *
- * Rules:
- * 1. Filter out command-line / terminal blocks (sh, bash, shell, terminal, cmd, powershell).
- * 2. Never triggers on single scripts, casual debugging, or tutorials.
- * 3. Must have at least 3 distinct real code files (or 2 files with explicit project manifest).
- * 4. Total lines of non-empty code across project files must be substantial (>= 80 lines).
- * 5. Content or files must explicitly declare a project structure (dự án, project, full stack).
  */
 export function isLargeProject(files: ExtractedCodeFile[], content: string): boolean {
   if (!files || files.length < 2) return false;
@@ -212,15 +233,21 @@ export function isLargeProject(files: ExtractedCodeFile[], content: string): boo
   }
 
   // Must have substantial code volume
-  if (totalLines < 80) return false;
+  if (totalLines < 45) return false;
+
+  // If any file specifies a folder structure (e.g. `src/...` or `game/...`), it's unequivocally a project!
+  const hasSubfolders = realCodeFiles.some((f) => f.filename.includes("/"));
+  if (hasSubfolders && realCodeFiles.length >= 2 && totalLines >= 45) {
+    return true;
+  }
 
   const lowerContent = content.toLowerCase();
 
-  // Strict project indicator signals (no generic words like "hệ thống" or "cấu trúc")
+  // Project indicator signals
   const projectKeywords = [
     "dự án", "project", "full stack", "fullstack",
-    "source code dự án", "mã nguồn dự án", "trọn bộ source code",
-    "cấu trúc dự án", "project structure",
+    "source code", "mã nguồn", "cấu trúc", "thư mục",
+    "folder", "game", "ứng dụng", "module", "tệp", "zip",
   ];
   const hasProjectKeyword = projectKeywords.some((kw) => lowerContent.includes(kw));
 
@@ -233,18 +260,17 @@ export function isLargeProject(files: ExtractedCodeFile[], content: string): boo
     PROJECT_MANIFEST_FILES.some((mf) => f.filename.toLowerCase().includes(mf))
   );
 
-  // If 3+ real code files and has project keyword or manifest
-  if (realCodeFiles.length >= 3 && (hasProjectKeyword || hasManifest)) {
+  // If 3+ real code files and has project keyword or manifest or 60+ lines
+  if (realCodeFiles.length >= 3 && (hasProjectKeyword || hasManifest || totalLines >= 60)) {
     return true;
   }
 
-  // If 2 files, only qualify if BOTH are substantial (>= 25 lines each), total >= 80 lines,
-  // AND both project keyword AND manifest file exist
-  if (realCodeFiles.length === 2 && hasProjectKeyword && hasManifest) {
+  // If 2 files, qualify if both are substantial or manifest exists
+  if (realCodeFiles.length === 2 && (hasProjectKeyword || hasManifest)) {
     const bothSubstantial = realCodeFiles.every(
-      (f) => f.code.split(/\r?\n/).filter((l) => l.trim().length > 0).length >= 25
+      (f) => f.code.split(/\r?\n/).filter((l) => l.trim().length > 0).length >= 15
     );
-    if (bothSubstantial && totalLines >= 80) {
+    if (bothSubstantial && totalLines >= 50) {
       return true;
     }
   }

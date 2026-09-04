@@ -350,7 +350,7 @@ async function callAnthropic(opts: { apiKey: string; model: string; messages: Ga
         "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true",
       },
       body: JSON.stringify({
-        model: opts.model, max_tokens: Math.max(1024, Math.min(opts.maxTokens ?? 4096, 32000)), stream: true,
+        model: opts.model, max_tokens: Math.max(1024, Math.min(opts.maxTokens ?? 16384, 64000)), stream: true,
         system: systemBlocks, messages,
         ...(opts.tools.length ? { tools: opts.tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters })) } : {}),
       }),

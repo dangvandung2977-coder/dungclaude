@@ -49,15 +49,17 @@ export function modelOutputCap(model: AIModel, opts: EngineOptions): number {
 
 // ── Task output budget by task class + response length ──
 export function outputBudgetFor(taskClass: string, mode: OptimizationMode, responseLength: string, s: OptimizationSettings): number {
-  const base = taskClass === "reasoning" ? s.outputLimits.reasoning
-    : taskClass === "coding" ? s.outputLimits.coding
+  if (taskClass === "coding") {
+    // Coding requests should never be cut short — allow up to 64,000 tokens for full code generation
+    return responseLength === "concise" ? 8192 : Math.max(s.outputLimits.coding, 64000);
+  }
+  const base = taskClass === "reasoning" ? Math.max(s.outputLimits.reasoning, 32000)
     : taskClass === "simple" ? s.outputLimits.simple
     : s.outputLimits.normal;
-  const lenMul = responseLength === "concise" ? 0.5 : responseLength === "detailed" ? 1.6 : 1;
-  const modeMul = mode === "cost_efficient" ? 0.8 : mode === "max_quality" ? 1.2 : 1;
-  // Use per-length budgets when they're the tighter bound
+  const lenMul = responseLength === "concise" ? 0.6 : responseLength === "detailed" ? 2.5 : 1.2;
+  const modeMul = mode === "cost_efficient" ? 0.9 : 1;
   const byLength = s.responseLengths[responseLength as "concise" | "balanced" | "detailed"] ?? base;
-  return Math.max(1024, Math.round(Math.min(base * lenMul, byLength) * modeMul));
+  return Math.max(4096, Math.round(Math.max(base * lenMul, byLength) * modeMul));
 }
 
 // ── Token Estimator (heuristic, chars/4 — same as existing registry) ──
