@@ -726,8 +726,8 @@ export async function runGateway(opts: {
       if (mRow?.api_name) actualModel = mRow.api_name;
     } catch { /* fallback to ref.model */ }
 
-    // Fast timeout for custom endpoints (12s max) to prevent long hangs on dead servers
-    const customTimeout = Math.min(config.ai.timeoutMs, 12000);
+    // Provide sufficient timeout for large models / reasoning models before fallback
+    const customTimeout = Math.max(config.ai.timeoutMs, 60000);
     let lastKeyErr: unknown = null;
     for (let i = 0; i < keyPool.length; i++) {
       const activeKey = keyPool[i];

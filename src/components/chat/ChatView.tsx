@@ -460,9 +460,15 @@ export function ChatView({
 
   // Poll VPS status to recover background generation after a local network drop
   const [isStreamingLive, setIsStreamingLive] = useState(false);
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const pollRecovery = useCallback(
-    async (convId: string, asstId: string) => {
+    (convId: string, asstId: string) => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+
       setIsReconnecting(true);
       setIsStreamingLive(false);
       setStatus("Mất kết nối mạng tạm thời · VPS vẫn đang sinh câu trả lời ngầm…");
@@ -470,10 +476,11 @@ export function ChatView({
       let attempts = 0;
       const maxAttempts = 300; // 300 * 400ms = 2 minutes of active real-time recovery polling
 
-      const interval = setInterval(async () => {
+      pollIntervalRef.current = setInterval(async () => {
         attempts++;
         if (attempts > maxAttempts || !isGeneratingRef.current) {
-          clearInterval(interval);
+          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
           isRecoveringRef.current = false;
           setIsReconnecting(false);
           setIsStreamingLive(false);
@@ -492,22 +499,26 @@ export function ChatView({
             const currentText = data.text || "";
 
             setMessages((prev) => {
-              const idx = prev.findIndex((m) => m.id === asstId);
-              if (idx !== -1) {
-                return [
-                  ...prev.slice(0, idx),
-                  {
-                    ...prev[idx],
-                    content: currentText,
-                    status: "streaming" as const,
-                    modelId: data.modelId ?? prev[idx].modelId,
-                  },
-                  ...prev.slice(idx + 1),
-                ];
+              const targetIdx = prev.findIndex((m) => m.id === asstId);
+              if (targetIdx !== -1) {
+                // Deduplicate any orphan empty streaming messages
+                return prev
+                  .filter((m) => m.id === asstId || !(m.role === "assistant" && m.status === "streaming" && !m.content?.trim()))
+                  .map((m) =>
+                    m.id === asstId
+                      ? {
+                          ...m,
+                          content: currentText,
+                          status: "streaming" as const,
+                          modelId: data.modelId ?? m.modelId,
+                        }
+                      : m
+                  );
               }
-              // If not found in current messages, append it right now so user watches it live!
+              // If not found in current messages, append exactly one:
+              const cleaned = prev.filter((m) => !(m.role === "assistant" && m.status === "streaming" && !m.content?.trim()));
               return [
-                ...prev,
+                ...cleaned,
                 {
                   id: asstId,
                   conversationId: convId,
@@ -531,7 +542,8 @@ export function ChatView({
               });
             }
           } else if (data.status === "completed" || data.latestMessage?.role === "assistant") {
-            clearInterval(interval);
+            if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
             isRecoveringRef.current = false;
             setIsReconnecting(false);
             setIsStreamingLive(false);
@@ -552,58 +564,60 @@ export function ChatView({
             };
 
             setMessages((prev) => {
-              const idx = prev.findIndex((m) => m.id === asstId || m.id === finalMsg.id);
-              if (idx !== -1) {
-                return [...prev.slice(0, idx), finalMsg, ...prev.slice(idx + 1)];
-              }
-              return [...prev, finalMsg];
+              // Deduplicate all orphan streaming messages
+              const withoutStreaming = prev.filter((m) => m.id !== asstId && m.id !== finalMsg.id && !(m.role === "assistant" && m.status === "streaming"));
+              return [...withoutStreaming, finalMsg];
             });
 
             toast("Đã kết nối lại · Đã nhận câu trả lời hoàn chỉnh từ VPS!", "success");
           } else if (data.status === "error") {
-            clearInterval(interval);
+            if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
             isRecoveringRef.current = false;
             setIsReconnecting(false);
             setIsStreamingLive(false);
             setStreaming(false);
             setStatus("");
             isGeneratingRef.current = false;
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === asstId
+            setMessages((prev) => {
+              const withoutDuplicates = prev.filter((m) => m.id === asstId || !(m.role === "assistant" && m.status === "streaming" && !m.content?.trim()));
+              return withoutDuplicates.map((m) =>
+                m.id === asstId || m.status === "streaming"
                   ? {
                       ...m,
-                      content: `${m.content}\n\n❌ Lỗi: ${data.error || "Không thể hoàn thành"}`,
+                      content: m.content ? `${m.content}\n\n❌ Lỗi: ${data.error || "Không thể hoàn thành"}` : `❌ Lỗi: ${data.error || "Không thể hoàn thành"}`,
                       status: "error" as const,
                     }
                   : m
-              )
-            );
+              );
+            });
             toast("Lỗi từ AI", "error");
           } else if (!data.active && (data.status === "idle" || data.status === "cancelled")) {
             // Background generation on VPS is no longer active; stop reconnecting banner cleanly
-            clearInterval(interval);
+            if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
             isRecoveringRef.current = false;
             setIsReconnecting(false);
             setIsStreamingLive(false);
             setStreaming(false);
             setStatus("");
             isGeneratingRef.current = false;
-            setMessages((prev) =>
-              prev.map((m) => {
+            setMessages((prev) => {
+              const withoutDuplicates = prev.filter((m) => m.id === asstId || !(m.role === "assistant" && m.status === "streaming" && !m.content?.trim()));
+              return withoutDuplicates.map((m) => {
                 if (m.id === asstId || m.status === "streaming") {
                   const hasContent = Boolean(m.content?.trim());
                   return {
                     ...m,
                     content: hasContent
                       ? m.content
-                      : "⚠️ Mô hình AI đã bị ngắt kết nối trước khi hoàn tất phản hồi. Vui lòng bấm \"Thử lại\".",
+                      : "⚠️ Mô hình AI đã dừng phản hồi trước khi xuất kết quả. Vui lòng bấm \"Thử lại\".",
                     status: "completed" as const,
                   };
                 }
                 return m;
-              })
-            );
+              });
+            });
           }
         } catch {
           // Network still down; continue polling next tick
@@ -618,9 +632,23 @@ export function ChatView({
     [toast]
   );
 
+  const pollRecoveryRef = useRef(pollRecovery);
+  pollRecoveryRef.current = pollRecovery;
+
+  // Cleanup polling timer on unmount
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    };
+  }, []);
+
   // When loading a conversation, automatically attach if VPS has an ongoing background generation
   useEffect(() => {
     if (!activeConvId || activeConvId === "new") return;
+    if (isGeneratingRef.current || isRecoveringRef.current) return;
 
     fetch(`/api/chat/status?conversationId=${activeConvId}`)
       .then((r) => r.json())
@@ -629,30 +657,42 @@ export function ChatView({
           isRecoveringRef.current = true;
           isGeneratingRef.current = true;
           setStreaming(true);
-          const targetId = data.messageId || `asst_bg_${Date.now()}`;
-          if (data.text) {
-            setMessages((prev) => {
-              if (prev.some((m) => m.id === targetId)) return prev;
-              return [
-                ...prev,
-                {
-                  id: targetId,
-                  conversationId: activeConvId,
-                  role: "assistant",
-                  content: data.text,
-                  status: "streaming" as const,
-                  parts: [{ id: `part_${Date.now()}`, type: "text", text: data.text }],
-                  createdAt: new Date().toISOString(),
-                  modelId: data.modelId,
-                },
-              ];
-            });
+
+          let targetId = data.messageId;
+          setMessages((prev) => {
+            const existingStreaming = prev.find(
+              (m) => m.role === "assistant" && (m.status === "streaming" || m.id.startsWith("asst_bg_") || m.id.startsWith("tmp_asst_"))
+            );
+            if (existingStreaming) {
+              targetId = existingStreaming.id;
+              return prev.map((m) =>
+                m.id === targetId ? { ...m, content: data.text || m.content, status: "streaming" as const } : m
+              );
+            }
+            if (!targetId) targetId = `asst_bg_${activeConvId}`;
+            if (prev.some((m) => m.id === targetId)) return prev;
+            return [
+              ...prev,
+              {
+                id: targetId,
+                conversationId: activeConvId,
+                role: "assistant",
+                content: data.text || "",
+                status: "streaming" as const,
+                parts: [{ id: `part_${Date.now()}`, type: "text", text: data.text || "" }],
+                createdAt: new Date().toISOString(),
+                modelId: data.modelId,
+              },
+            ];
+          });
+
+          if (targetId) {
+            pollRecoveryRef.current?.(activeConvId, targetId);
           }
-          pollRecovery(activeConvId, targetId);
         }
       })
       .catch(() => {});
-  }, [activeConvId, pollRecovery]);
+  }, [activeConvId]);
 
   // The one true stream executor. Stored in a ref so consumers get a stable
   // callable while always running the latest closure.

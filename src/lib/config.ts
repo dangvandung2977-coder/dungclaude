@@ -22,7 +22,7 @@ export const config = {
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean),
-    timeoutMs: Number(process.env.AI_TIMEOUT_MS ?? 25000) || 25000,
+    timeoutMs: Number(process.env.AI_TIMEOUT_MS ?? 60000) || 60000,
     maxRetries: Number(process.env.AI_MAX_RETRIES ?? 2) || 2,
   },
   providers: {

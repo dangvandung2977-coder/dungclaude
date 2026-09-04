@@ -249,11 +249,11 @@ export function Tabs<T extends string>({
 export function useToast() {
   const [items, setItems] = useState<Array<{ id: number; msg: string; type?: "success" | "error" | "info" }>>([]);
 
-  function toast(msg: string, type: "success" | "error" | "info" = "info") {
+  const toast = React.useCallback((msg: string, type: "success" | "error" | "info" = "info") => {
     const id = Date.now() + Math.random();
     setItems((s) => [...s, { id, msg, type }]);
     setTimeout(() => setItems((s) => s.filter((x) => x.id !== id)), 2600);
-  }
+  }, []);
 
   function Toasts() {
     return (
