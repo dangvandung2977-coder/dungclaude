@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Brain, ChevronDown, ChevronRight, Sparkles, Copy, Check } from "lucide-react";
+import { Brain, ChevronDown, Copy, Check } from "lucide-react";
 import { cn, copyText } from "@/lib/utils";
 
 interface ThinkingBlockProps {
@@ -24,53 +24,40 @@ export const ThinkingBlock = React.memo(function ThinkingBlock({
   const count = wordCount || (thinking ? thinking.split(/\s+/).filter(Boolean).length : 0);
 
   return (
-    <div className="my-2.5 rounded-xl border border-white/[0.08] bg-[#1c1b1a]/80 overflow-hidden transition-all text-xs">
-      {/* Header bar — compact, clickable toggle */}
+    <div className="mb-2 select-none">
+      {/* Subtle, minimal inline trigger (Claude-like) */}
       <button
         type="button"
         onClick={() => setExpanded((prev) => !prev)}
-        className="w-full flex items-center justify-between px-3.5 py-2 text-left hover:bg-white/[0.03] transition-colors cursor-pointer group"
+        className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs text-[#8E8B82] hover:text-[#ECEBE4] hover:bg-white/[0.04] transition-all cursor-pointer group"
         aria-expanded={expanded}
         aria-label="Thu gọn hoặc mở rộng quá trình suy nghĩ"
       >
-        <div className="flex items-center gap-2 min-w-0">
-          <div className="h-5 w-5 rounded-md bg-[#D97757]/15 border border-[#D97757]/30 flex items-center justify-center shrink-0">
-            {isThinking ? (
-              <Sparkles size={11} className="text-[#D97757] animate-pulse" />
-            ) : (
-              <Brain size={11} className="text-[#D97757]" />
-            )}
-          </div>
-          <div className="flex items-center gap-2 min-w-0">
-            <span className={cn(
-              "font-medium transition-colors text-xs",
-              isThinking ? "text-[#ECEBE4]" : "text-[#A6A49B] group-hover:text-[#ECEBE4]"
-            )}>
-              {isThinking ? "Đang suy nghĩ…" : "Quá trình suy nghĩ"}
-            </span>
-            {!isThinking && count > 0 && (
-              <span className="text-[11px] text-[#75736C]">
-                ({count} từ)
-              </span>
-            )}
-            {isThinking && (
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#D97757] animate-pulse" />
-            )}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 text-[#75736C] group-hover:text-[#A6A49B] shrink-0 text-[11px]">
-          <span>{expanded ? "Thu gọn" : "Xem chi tiết"}</span>
-          {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        </div>
+        <Brain
+          size={13}
+          className={cn("text-[#D97757]", isThinking && "animate-pulse")}
+        />
+        <span className="font-medium">
+          {isThinking ? "Đang suy nghĩ…" : `Đã suy nghĩ (${count} từ)`}
+        </span>
+        {isThinking && (
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#D97757] animate-pulse" />
+        )}
+        <ChevronDown
+          size={12}
+          className={cn(
+            "text-[#75736C] group-hover:text-[#A6A49B] transition-transform duration-200",
+            expanded ? "rotate-180" : ""
+          )}
+        />
       </button>
 
-      {/* Expanded thoughts body */}
+      {/* Expanded reasoning body: subtle indented block with left accent line */}
       {expanded && (
-        <div className="border-t border-white/[0.06] bg-black/20 px-3.5 py-3">
-          <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/[0.04]">
-            <span className="text-[10px] uppercase font-mono tracking-wider text-[#75736C]">
-              Suy luận chi tiết
+        <div className="mt-2 ml-1 pl-3.5 border-l-2 border-[#D97757]/30 py-1 text-xs text-[#8E8B82] leading-relaxed select-text animate-in fade-in duration-150">
+          <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-white/[0.04] text-[11px] text-[#75736C]">
+            <span className="font-mono text-[10px] uppercase tracking-wider text-[#A6A49B]/70">
+              Quá trình suy luận
             </span>
             {thinking && (
               <button
@@ -82,7 +69,7 @@ export const ThinkingBlock = React.memo(function ThinkingBlock({
                     setTimeout(() => setCopied(false), 1500);
                   }
                 }}
-                className="inline-flex items-center gap-1 text-[11px] text-[#A6A49B] hover:text-[#ECEBE4] transition-colors cursor-pointer"
+                className="inline-flex items-center gap-1 text-[11px] text-[#75736C] hover:text-[#ECEBE4] transition-colors cursor-pointer"
                 title="Sao chép suy nghĩ"
               >
                 {copied ? (
@@ -99,7 +86,7 @@ export const ThinkingBlock = React.memo(function ThinkingBlock({
               </button>
             )}
           </div>
-          <div className="max-h-80 overflow-y-auto thin-scroll text-xs text-[#A6A49B] leading-relaxed whitespace-pre-wrap font-mono select-text pr-1">
+          <div className="max-h-72 overflow-y-auto thin-scroll text-xs text-[#A6A49B]/90 leading-relaxed whitespace-pre-wrap font-mono pr-2">
             {thinking || (isThinking ? "Đang hình thành chuỗi suy luận…" : "")}
           </div>
         </div>

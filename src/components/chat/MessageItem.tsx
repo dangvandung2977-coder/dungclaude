@@ -383,11 +383,6 @@ export const MessageItem = React.memo(function MessageItem({
           />
         )}
 
-        {/* Project ZIP card: only show for genuine large projects */}
-        {isProject && !streaming && (
-          <ProjectZipCard files={codeFiles} title="project-code" />
-        )}
-
         {parsed.content ? (
           <Markdown text={parsed.content} streaming={Boolean(streaming)} />
         ) : streaming && !parsed.isThinking ? (
@@ -396,6 +391,13 @@ export const MessageItem = React.memo(function MessageItem({
             <span className="italic font-serif text-[#ECEBE4]/80 tracking-wide">Claude đang suy nghĩ…</span>
           </div>
         ) : null}
+
+        {/* Project ZIP card: rendered at the bottom of the response, only for real projects */}
+        {isProject && !streaming && (
+          <div className="mt-3">
+            <ProjectZipCard files={codeFiles} title="project-code" />
+          </div>
+        )}
 
         {/* Artifact cards — real generated files (docx/pptx/xlsx/pdf/md) */}
         {artifactParts.length > 0 && (
