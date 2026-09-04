@@ -107,8 +107,10 @@ create or replace function public.search_memories(
   where m.user_id = p_user_id
     and m.status = 'current'
     and (
-      m.scope = 'global'
-      or (p_project_id is not null and m.project_id = p_project_id)
+      -- Outside project: strictly match only global memories that have no project_id
+      (p_project_id is null and m.project_id is null and m.scope = 'global')
+      -- Inside project: match memories belonging to this project OR unscoped global memories
+      or (p_project_id is not null and (m.project_id = p_project_id or (m.scope = 'global' and m.project_id is null)))
     )
   order by
     case

@@ -22,7 +22,10 @@ export async function GET(request: Request) {
   // Determine external origin safely (handles proxies / Cloudflare Tunnel / custom domain)
   const forwardedHost = request.headers.get("x-forwarded-host");
   const forwardedProto = request.headers.get("x-forwarded-proto") || "https";
-  const origin = forwardedHost ? `${forwardedProto}://${forwardedHost}` : requestUrl.origin;
+  let origin = process.env.APP_URL || (forwardedHost ? `${forwardedProto}://${forwardedHost}` : requestUrl.origin);
+  if (origin.startsWith("http://dungclaude.site")) {
+    origin = origin.replace("http://", "https://");
+  }
 
   // Handle OAuth provider error (e.g. user cancelled Google sign-in)
   if (oauthError || oauthErrorDescription) {

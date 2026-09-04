@@ -269,6 +269,100 @@ describe("Persistent AI Memory System Test Suite", () => {
 
     expect(sim12).toBeGreaterThan(sim13);
   });
+
+  // 10. General Chat Memory Isolation (Outside Any Project)
+  it("strictly prevents any project memories from leaking into General Chat (outside project)", async () => {
+    const userId = "user_isolation_check";
+
+    // 1. Global memory
+    await createMemory({
+      userId,
+      scope: "global",
+      key: "pref:language",
+      content: "User prefers communicating in Vietnamese",
+      importance: 0.8,
+    });
+
+    // 2. Secret memory in Project A
+    await createMemory({
+      userId,
+      projectId: "prj_secret_alpha",
+      scope: "project",
+      key: "secret:code",
+      content: "Alpha secret code is 987654321",
+      importance: 1.0,
+    });
+
+    // 3. Secret memory in Project B
+    await createMemory({
+      userId,
+      projectId: "prj_secret_beta",
+      scope: "project",
+      key: "secret:token",
+      content: "Beta secret token is XYZ-TOP-SECRET",
+      importance: 1.0,
+    });
+
+    // Query from General Chat (outside project, projectId is null or undefined)
+    const generalResults = await searchMemories({
+      userId,
+      projectId: null,
+      query: "secret code token Vietnamese",
+    });
+
+    // Must match the global preference
+    expect(generalResults.some((m) => m.content.includes("Vietnamese"))).toBe(true);
+
+    // Must NEVER match project memories
+    expect(generalResults.some((m) => m.content.includes("987654321"))).toBe(false);
+    expect(generalResults.some((m) => m.content.includes("XYZ-TOP-SECRET"))).toBe(false);
+    expect(generalResults.some((m) => m.projectId !== null && m.projectId !== undefined)).toBe(false);
+  });
+
+  // 11. Cross-Project Strict Isolation
+  it("ensures Project A never matches Project B memories even with identical keywords", async () => {
+    const userId = "user_cross_prj";
+
+    await createMemory({
+      userId,
+      projectId: "prj_finance",
+      scope: "project",
+      key: "arch:audit",
+      content: "Finance project uses SOC2 compliant logging in Frankfurt AWS",
+      importance: 0.9,
+    });
+
+    await createMemory({
+      userId,
+      projectId: "prj_gaming",
+      scope: "project",
+      key: "arch:audit",
+      content: "Gaming project uses fast in-memory Redis cluster in Tokyo AWS",
+      importance: 0.9,
+    });
+
+    // Query in Project Finance
+    const financeResults = await searchMemories({
+      userId,
+      projectId: "prj_finance",
+      query: "Where is our AWS infrastructure and audit logging?",
+    });
+
+    expect(financeResults.some((m) => m.content.includes("Frankfurt"))).toBe(true);
+    expect(financeResults.some((m) => m.content.includes("Tokyo"))).toBe(false);
+    expect(financeResults.some((m) => m.projectId === "prj_gaming")).toBe(false);
+
+    // Query in Project Gaming
+    const gamingResults = await searchMemories({
+      userId,
+      projectId: "prj_gaming",
+      query: "Where is our AWS infrastructure and audit logging?",
+    });
+
+    expect(gamingResults.some((m) => m.content.includes("Tokyo"))).toBe(true);
+    expect(gamingResults.some((m) => m.content.includes("Frankfurt"))).toBe(false);
+    expect(gamingResults.some((m) => m.projectId === "prj_finance")).toBe(false);
+  });
 });
 
 function cosine(a: number[], b: number[]): number {

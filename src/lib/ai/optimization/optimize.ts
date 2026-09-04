@@ -93,7 +93,7 @@ export async function optimizeContext(input: OptimizeInput): Promise<OptimizeOut
 
   const [globalMemories, projectMemories, semanticMemories, summaryObj] = await Promise.all([
     memDecision.needGlobalUserMemory
-      ? listMemories({ userId: input.user.id, scope: "global", status: "current", limit: 5 }).catch(() => [])
+      ? listMemories({ userId: input.user.id, scope: "global", projectId: null, status: "current", limit: 5 }).catch(() => [])
       : Promise.resolve([]),
     memDecision.needProjectMemory && input.projectId
       ? listMemories({ userId: input.user.id, projectId: input.projectId, scope: "project", status: "current", limit: 8 }).catch(() => [])

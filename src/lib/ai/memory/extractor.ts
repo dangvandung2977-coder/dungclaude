@@ -91,8 +91,9 @@ export async function extractAndStoreMemories(opts: {
     for (const item of parsed.memories.slice(0, 3)) {
       if (!item.key || !item.content || (item.confidence !== undefined && item.confidence < 0.6)) continue;
 
-      const scope: MemoryScope = (item.scope === "project" && projectId) ? "project" : "global";
-      const targetProjectId = scope === "project" ? projectId : null;
+      // Strict Project Isolation: When in a project, all extracted memories belong exclusively to that project
+      const scope: MemoryScope = projectId ? "project" : "global";
+      const targetProjectId = projectId || null;
 
       await storeOrConsolidateMemory({
         userId,

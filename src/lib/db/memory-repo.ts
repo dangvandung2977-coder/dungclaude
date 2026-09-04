@@ -130,12 +130,14 @@ export async function createMemory(input: {
   embedding?: number[] | null;
 }): Promise<MemoryRecord> {
   const id = uid("mem");
+  const scope: MemoryScope = input.projectId ? "project" : (input.scope || "global");
+  const projectId = input.projectId ?? null;
   const record: MemoryRecord = {
     id,
     userId: input.userId,
-    projectId: input.projectId ?? null,
+    projectId,
     conversationId: input.conversationId ?? null,
-    scope: input.scope,
+    scope,
     category: input.category ?? "general",
     key: input.key.trim().toLowerCase(),
     content: input.content.trim(),
@@ -348,9 +350,11 @@ export async function searchMemories(opts: {
         .eq("status", "current");
 
       if (opts.projectId) {
-        q = q.or(`scope.eq.global,project_id.eq.${opts.projectId}`);
+        // In project: match this project's memories or pure global memories with no project assigned
+        q = q.or(`and(scope.eq.global,project_id.is.null),project_id.eq.${opts.projectId}`);
       } else {
-        q = q.eq("scope", "global");
+        // Outside project (General Chat): strictly only match pure global memories (never match project memories)
+        q = q.eq("scope", "global").is("project_id", null);
       }
 
       const { data, error } = await q.limit(100);
@@ -432,12 +436,15 @@ function getFromMemoryStore(opts: {
     if (opts.scope && m.scope !== opts.scope) continue;
 
     // Strict project isolation:
-    if (opts.projectId !== undefined) {
-      if (opts.projectId === null) {
-        if (m.projectId !== null && m.scope !== "global") continue;
-      } else {
-        if (m.projectId !== opts.projectId && m.scope !== "global") continue;
-      }
+    if (opts.projectId) {
+      // Inside a project: match memories belonging to this project OR unscoped global memories
+      const isThisProject = m.projectId === opts.projectId;
+      const isUnscopedGlobal = (m.projectId === null || m.projectId === undefined) && m.scope === "global";
+      if (!isThisProject && !isUnscopedGlobal) continue;
+    } else {
+      // Outside any project (General Chat): strictly exclude any memory associated with any project!
+      if (m.projectId !== null && m.projectId !== undefined) continue;
+      if (m.scope !== "global") continue;
     }
 
     out.push(m);

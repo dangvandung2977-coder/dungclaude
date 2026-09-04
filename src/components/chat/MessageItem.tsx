@@ -530,6 +530,10 @@ export const MessageItem = React.memo(function MessageItem({
           <div className="py-1">
             <ThinkingIndicator label="Claude đang suy nghĩ…" />
           </div>
+        ) : !streaming && parsed.thinking ? (
+          <p className="text-xs text-[#8E8B82] italic py-1">
+            ⚠️ Mô hình đã dừng phản hồi trước khi xuất kết quả hoàn chỉnh.
+          </p>
         ) : null}
 
         {/* Project ZIP card: rendered at the bottom of the response, only for real projects */}

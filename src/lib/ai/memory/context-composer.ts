@@ -42,7 +42,7 @@ export async function composeMemoryContext(opts: {
   const [globalMemories, projectMemories, retrievedMemories] = await Promise.all([
     // Global user memories (preferences, persistent instructions)
     decision.needGlobalUserMemory
-      ? listMemories({ userId, scope: "global", status: "current", limit: 5 }).catch(() => [])
+      ? listMemories({ userId, scope: "global", projectId: null, status: "current", limit: 5 }).catch(() => [])
       : Promise.resolve([] as MemoryRecord[]),
 
     // Project memories (architecture, constraints, decisions)

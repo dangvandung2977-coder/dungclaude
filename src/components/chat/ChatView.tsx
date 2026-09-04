@@ -580,6 +580,30 @@ export function ChatView({
               )
             );
             toast("Lỗi từ AI", "error");
+          } else if (!data.active && (data.status === "idle" || data.status === "cancelled")) {
+            // Background generation on VPS is no longer active; stop reconnecting banner cleanly
+            clearInterval(interval);
+            isRecoveringRef.current = false;
+            setIsReconnecting(false);
+            setIsStreamingLive(false);
+            setStreaming(false);
+            setStatus("");
+            isGeneratingRef.current = false;
+            setMessages((prev) =>
+              prev.map((m) => {
+                if (m.id === asstId || m.status === "streaming") {
+                  const hasContent = Boolean(m.content?.trim());
+                  return {
+                    ...m,
+                    content: hasContent
+                      ? m.content
+                      : "⚠️ Mô hình AI đã bị ngắt kết nối trước khi hoàn tất phản hồi. Vui lòng bấm \"Thử lại\".",
+                    status: "completed" as const,
+                  };
+                }
+                return m;
+              })
+            );
           }
         } catch {
           // Network still down; continue polling next tick
