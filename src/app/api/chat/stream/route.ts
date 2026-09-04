@@ -21,6 +21,12 @@ import { maybeSummarize, embedPendingMessages, pickSummarizationModel, generateT
 import { extractAndStoreMemories } from "@/lib/ai/memory/extractor";
 import { detectArtifactIntent } from "@/lib/artifacts/intent";
 import { generateArtifact } from "@/lib/artifacts/pipeline";
+import {
+  registerActiveTask,
+  appendTaskToken,
+  completeActiveTask,
+  failActiveTask,
+} from "@/lib/ai/active-tasks";
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -254,14 +260,22 @@ When asked to write software, build projects, or produce code:
     projectId: conv.projectId ?? body.projectId ?? undefined,
   });
 
-  req.signal.addEventListener("abort", () => { /* client aborted; gateway checks signal */ });
-
+  const activeTask = registerActiveTask(conv.id, user.id, optimized.routing.modelId);
   const requestId = `req_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 
   const stream = new ReadableStream({
     async start(controller) {
       const enc = new TextEncoder();
-      const send = (t: string, d: unknown) => controller.enqueue(enc.encode(sseEncode(t, d)));
+      let isControllerClosed = false;
+      const send = (t: string, d: unknown) => {
+        if (isControllerClosed) return;
+        try {
+          controller.enqueue(enc.encode(sseEncode(t, d)));
+        } catch {
+          // Client disconnected / lost internet, but VPS keeps running AI call in background!
+          isControllerClosed = true;
+        }
+      };
       send("conversation", { conversationId: conv.id, title: conv.title });
       const started = Date.now();
       let full = "";
@@ -334,10 +348,15 @@ When asked to write software, build projects, or produce code:
           capabilities: modelMeta?.capabilities,
           reasoningEffort: body.reasoningEffort,
           cb: {
-            onToken: (t) => { full += t; send("token", { delta: t }); },
+            onToken: (t) => {
+              full += t;
+              appendTaskToken(conv.id, t);
+              send("token", { delta: t });
+            },
             onToolCall: (id, name, input) => send("tool_call", { id, name, input }),
             onStatus: (st) => send("status", { status: st }),
-            signal: req.signal,
+            // Decoupled: only abort when user explicitly stops, NOT when user's local network drops!
+            signal: activeTask.abortController.signal,
           },
           executeTool: (name, input) => executeTool(name, input, { conversationId: conv.id, projectId: conv.projectId ?? undefined }),
         });
@@ -451,10 +470,11 @@ When asked to write software, build projects, or produce code:
         if (process.env.NODE_ENV !== "production") {
           console.log(`[CHAT] stream complete: conv=${conv.id} msg=${assistantMsg.id} latency=${Date.now() - started}ms`);
         }
+        completeActiveTask(conv.id, assistantMsg.id, Date.now() - started);
         send("done", { messageId: assistantMsg.id, latencyMs: Date.now() - started });
         try { controller.close(); } catch { /* ignore */ }
       } catch (e) {
-        if (req.signal.aborted) {
+        if (activeTask.abortController.signal.aborted) {
           if (process.env.NODE_ENV !== "production") {
             console.log(`[CHAT] generation cancelled by user: conv=${conv.id}`);
           }
@@ -492,6 +512,7 @@ When asked to write software, build projects, or produce code:
         const friendlyMsg = isUpstreamUnsupportedError(rawErrMsg)
           ? "Mô hình này không hỗ trợ streaming. Hệ thống đã chuyển sang chế độ phản hồi đầy đủ cho các lượt kế tiếp."
           : rawErrMsg;
+        failActiveTask(conv.id, friendlyMsg);
         send("error", {
           message: friendlyMsg,
           retryable: true,

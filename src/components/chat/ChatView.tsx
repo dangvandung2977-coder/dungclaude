@@ -11,6 +11,7 @@ import {
   Trash2,
   Sparkles,
   Check,
+  Loader2,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -225,6 +226,9 @@ export function ChatView({
   const [showJump, setShowJump] = useState(false);
   const [activeCategory, setActiveCategory] = useState<CategoryKey | null>(null);
   const [isIncognito, setIsIncognito] = useState(false);
+  const [isReconnecting, setIsReconnecting] = useState(false);
+  const isExplicitStopRef = useRef(false);
+  const isRecoveringRef = useRef(false);
 
   const { user } = useSession();
   const { toast, Toasts } = useToast();
@@ -346,6 +350,110 @@ export function ChatView({
   const activeConvIdRef = useRef(activeConvId);
   useEffect(() => { activeConvIdRef.current = activeConvId; }, [activeConvId]);
 
+  // Poll VPS status to recover background generation after a local network drop
+  const pollRecovery = useCallback(
+    async (convId: string, asstId: string) => {
+      setIsReconnecting(true);
+      setStatus("Mất kết nối mạng tạm thời · VPS vẫn đang sinh câu trả lời ngầm…");
+
+      let attempts = 0;
+      const maxAttempts = 120; // 120 * 1.5s = 3 minutes of background polling
+
+      const interval = setInterval(async () => {
+        attempts++;
+        if (attempts > maxAttempts || !isGeneratingRef.current) {
+          clearInterval(interval);
+          isRecoveringRef.current = false;
+          setIsReconnecting(false);
+          setStatus("");
+          return;
+        }
+
+        try {
+          const res = await fetch(`/api/chat/status?conversationId=${convId}`);
+          if (!res.ok) return; // still offline or server unavailable
+          const data = await res.json();
+
+          if (data.status === "streaming" && data.text) {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === asstId ? { ...m, content: data.text, status: "streaming" as const } : m
+              )
+            );
+          } else if (data.status === "completed" || data.latestMessage?.role === "assistant") {
+            clearInterval(interval);
+            isRecoveringRef.current = false;
+            setIsReconnecting(false);
+            setStreaming(false);
+            setStatus("");
+            isGeneratingRef.current = false;
+
+            const finalMsg: Message = data.latestMessage ?? {
+              id: data.messageId || asstId,
+              conversationId: convId,
+              role: "assistant",
+              content: data.text || "",
+              status: "completed",
+              parts: [{ id: `part_${Date.now()}`, type: "text", text: data.text || "" }],
+              createdAt: new Date().toISOString(),
+              modelId: data.modelId,
+              latencyMs: data.latencyMs,
+            };
+
+            setMessages((prev) =>
+              prev.map((m) => (m.id === asstId ? finalMsg : m))
+            );
+            toast("Đã kết nối lại · Đã nhận câu trả lời hoàn chỉnh từ VPS!", "success");
+          } else if (data.status === "error") {
+            clearInterval(interval);
+            isRecoveringRef.current = false;
+            setIsReconnecting(false);
+            setStreaming(false);
+            setStatus("");
+            isGeneratingRef.current = false;
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === asstId
+                  ? {
+                      ...m,
+                      content: `${m.content}\n\n❌ Lỗi: ${data.error || "Không thể hoàn thành"}`,
+                      status: "error" as const,
+                    }
+                  : m
+              )
+            );
+            toast("Lỗi từ AI", "error");
+          }
+        } catch {
+          // Network still down; continue polling next tick
+        }
+      }, 1500);
+
+      const onOnline = () => {
+        // Fast reaction when OS reports online
+      };
+      window.addEventListener("online", onOnline, { once: true });
+    },
+    [toast]
+  );
+
+  // When loading a conversation, automatically attach if VPS has an ongoing background generation
+  useEffect(() => {
+    if (!activeConvId || activeConvId === "new") return;
+
+    fetch(`/api/chat/status?conversationId=${activeConvId}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.active && data.status === "streaming") {
+          isRecoveringRef.current = true;
+          isGeneratingRef.current = true;
+          setStreaming(true);
+          pollRecovery(activeConvId, data.messageId || `asst_bg_${Date.now()}`);
+        }
+      })
+      .catch(() => {});
+  }, [activeConvId, pollRecovery]);
+
   // The one true stream executor. Stored in a ref so consumers get a stable
   // callable while always running the latest closure.
   const executeStreamImpl = async ({
@@ -365,6 +473,9 @@ export function ChatView({
   }) => {
     if (isGeneratingRef.current) return;
     isGeneratingRef.current = true;
+    isExplicitStopRef.current = false;
+    isRecoveringRef.current = false;
+    setIsReconnecting(false);
     setStreaming(true);
     setStatus("Thinking…");
     const streamStartTime = Date.now();
@@ -560,7 +671,7 @@ export function ChatView({
         }
       }
     } catch (e) {
-      if ((e as Error).name === "AbortError") {
+      if (isExplicitStopRef.current || ((e as Error).name === "AbortError" && isExplicitStopRef.current)) {
         setMessages((s) =>
           s
             .filter((m) => !(m.id === targetAsstId && !acc))
@@ -571,6 +682,17 @@ export function ChatView({
             )
         );
       } else {
+        // Client network dropped / disconnected while streaming!
+        // VPS is still running 24/7 on the cloud and will complete the AI generation!
+        // Do NOT show fatal red network error; initiate background recovery polling!
+        console.warn("[ChatView] Client connection dropped, initiating VPS recovery polling...", e);
+        const targetConv = activeConvIdRef.current;
+        if (targetConv && targetConv !== "new") {
+          isRecoveringRef.current = true;
+          void pollRecovery(targetConv, currentAsstId);
+          return;
+        }
+
         setMessages((s) =>
           s.map((m) =>
             m.id === targetAsstId
@@ -587,10 +709,12 @@ export function ChatView({
       }
     } finally {
       if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
-      setStreaming(false);
-      setStatus("");
-      isGeneratingRef.current = false;
-      abortRef.current = null;
+      if (!isRecoveringRef.current) {
+        setStreaming(false);
+        setStatus("");
+        isGeneratingRef.current = false;
+        abortRef.current = null;
+      }
     }
   };
 
@@ -710,10 +834,24 @@ export function ChatView({
   }, []);
 
   const stop = useCallback(() => {
+    isExplicitStopRef.current = true;
+    isRecoveringRef.current = false;
+    setIsReconnecting(false);
+
     if (abortRef.current) {
       abortRef.current.abort();
       abortRef.current = null;
     }
+
+    // Explicitly notify VPS to stop the background generation
+    if (activeConvId && activeConvId !== "new") {
+      fetch("/api/chat/abort", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversationId: activeConvId }),
+      }).catch(() => {});
+    }
+
     setStreaming(false);
     setStatus("");
     isGeneratingRef.current = false;
@@ -727,7 +865,7 @@ export function ChatView({
         )
     );
     toast("Đã dừng tạo câu trả lời", "info");
-  }, [toast]);
+  }, [activeConvId, toast]);
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
@@ -967,6 +1105,22 @@ export function ChatView({
                 <ArrowDown size={13} />
                 <span>Xuống dưới cùng</span>
               </button>
+            )}
+
+            {/* Reconnecting banner when local network dropped but VPS continues generating */}
+            {isReconnecting && (
+              <div className="max-w-2xl mx-auto px-4 w-full mb-2 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs shadow-lg backdrop-blur-sm">
+                  <div className="relative flex h-2.5 w-2.5 shrink-0">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+                  </div>
+                  <span className="flex-1 font-medium">
+                    Mất kết nối mạng tạm thời · VPS vẫn đang sinh câu trả lời ngầm và sẽ tự động đồng bộ khi có mạng lại...
+                  </span>
+                  <Loader2 size={13} className="animate-spin text-amber-400 shrink-0" />
+                </div>
+              </div>
             )}
 
             {/* Floating Composer at Bottom */}
