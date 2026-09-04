@@ -30,6 +30,7 @@ export interface Message {
   inputTokens?: number;
   outputTokens?: number;
   costUsd?: number;
+  latencyMs?: number;
   status?: MessageStatus;
   createdAt: string;
 }

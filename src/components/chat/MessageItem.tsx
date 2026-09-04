@@ -15,6 +15,7 @@ import {
   Wrench,
   ChevronDown,
   ChevronRight,
+  Zap,
 } from "lucide-react";
 import { Markdown } from "./Markdown";
 import { CodeBlock } from "./CodeBlock";
@@ -24,6 +25,13 @@ import { ProjectZipCard } from "./ProjectZipCard";
 import { parseThinking, extractCodeBlocks, isLargeProject } from "@/lib/ai/thinking";
 import { copyText, cn } from "@/lib/utils";
 import type { Message } from "@/types";
+
+function formatLatency(ms?: number): string {
+  if (!ms || ms <= 0) return "";
+  if (ms < 1000) return `${ms}ms`;
+  const sec = ms / 1000;
+  return sec < 10 ? `${sec.toFixed(2)}s` : `${sec.toFixed(1)}s`;
+}
 
 const EXT_LABELS: Record<string, string> = {
   docx: "Tài liệu Word",
@@ -273,6 +281,21 @@ export const MessageItem = React.memo(function MessageItem({
   const [lightboxImg, setLightboxImg] = useState<{ url: string; fileName?: string } | null>(null);
 
   const isAssistant = message.role === "assistant";
+
+  // Live stopwatch while streaming response
+  const [liveElapsed, setLiveElapsed] = useState(0);
+  React.useEffect(() => {
+    if (!streaming || !isAssistant) {
+      setLiveElapsed(0);
+      return;
+    }
+    const start = Date.now();
+    const interval = setInterval(() => {
+      setLiveElapsed(Date.now() - start);
+    }, 100);
+    return () => clearInterval(interval);
+  }, [streaming, isAssistant]);
+
   const parsed = React.useMemo(
     () => (isAssistant ? parseThinking(message.content || "") : { thinking: "", content: message.content || "", isThinking: false, wordCount: 0 }),
     [isAssistant, message.content]
@@ -613,90 +636,125 @@ export const MessageItem = React.memo(function MessageItem({
           </div>
         )}
 
-        {/* Hover / Focused Action Bar */}
-        {!streaming && message.content && (
-          <div className="flex items-center gap-1 mt-3 pt-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-            <button
-              type="button"
-              aria-label="Sao chép câu trả lời"
-              title={copied ? "Đã sao chép!" : "Sao chép câu trả lời"}
-              onClick={async () => {
-                const ok = await copyText(parsed.content || message.content);
-                if (ok) {
-                  setCopied(true);
-                  setTimeout(() => setCopied(false), 2000);
-                }
-              }}
-              className={cn(
-                "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs transition-all cursor-pointer font-sans",
-                copied
-                  ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-medium"
-                  : "text-[#A6A49B] hover:text-[#ECEBE4] hover:bg-white/[0.06]"
-              )}
-            >
-              {copied ? (
-                <>
-                  <Check size={12} className="text-emerald-400" />
-                  <span>Đã chép</span>
-                </>
-              ) : (
-                <>
-                  <Copy size={12} />
-                  <span>Sao chép</span>
-                </>
-              )}
-            </button>
+        {/* Footer info: Action buttons on the left + Response time badge on the right */}
+        <div className="flex items-center justify-between gap-2 mt-3 pt-1.5 min-h-[28px]">
+          {/* Action buttons (Copy, Feedback, Retry) */}
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+            {!streaming && message.content && (
+              <>
+                <button
+                  type="button"
+                  aria-label="Sao chép câu trả lời"
+                  title={copied ? "Đã sao chép!" : "Sao chép câu trả lời"}
+                  onClick={async () => {
+                    const ok = await copyText(parsed.content || message.content);
+                    if (ok) {
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 2000);
+                    }
+                  }}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs transition-all cursor-pointer font-sans",
+                    copied
+                      ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-medium"
+                      : "text-[#A6A49B] hover:text-[#ECEBE4] hover:bg-white/[0.06]"
+                  )}
+                >
+                  {copied ? (
+                    <>
+                      <Check size={12} className="text-emerald-400" />
+                      <span>Đã chép</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy size={12} />
+                      <span>Sao chép</span>
+                    </>
+                  )}
+                </button>
 
-            <button
-              type="button"
-              aria-label="Câu trả lời hữu ích"
-              title={feedback === "good" ? "Đã đánh giá hữu ích" : "Hữu ích"}
-              onClick={() => setFeedback(feedback === "good" ? null : "good")}
-              className={cn(
-                "p-1.5 rounded-lg text-xs transition-all cursor-pointer flex items-center gap-1",
-                feedback === "good"
-                  ? "text-emerald-400 bg-emerald-500/15 border border-emerald-500/30"
-                  : "text-[#A6A49B] hover:text-[#ECEBE4] hover:bg-white/[0.06]"
-              )}
-            >
-              <ThumbsUp size={12} />
-              {feedback === "good" && <span className="text-[11px] font-medium pr-0.5">Hữu ích</span>}
-            </button>
+                <button
+                  type="button"
+                  aria-label="Câu trả lời hữu ích"
+                  title={feedback === "good" ? "Đã đánh giá hữu ích" : "Hữu ích"}
+                  onClick={() => setFeedback(feedback === "good" ? null : "good")}
+                  className={cn(
+                    "p-1.5 rounded-lg text-xs transition-all cursor-pointer flex items-center gap-1",
+                    feedback === "good"
+                      ? "text-emerald-400 bg-emerald-500/15 border border-emerald-500/30"
+                      : "text-[#A6A49B] hover:text-[#ECEBE4] hover:bg-white/[0.06]"
+                  )}
+                >
+                  <ThumbsUp size={12} />
+                  {feedback === "good" && <span className="text-[11px] font-medium pr-0.5">Hữu ích</span>}
+                </button>
 
-            <button
-              type="button"
-              aria-label="Chưa hài lòng"
-              title={feedback === "bad" ? "Đã ghi nhận phản hồi" : "Chưa hài lòng"}
-              onClick={() => setFeedback(feedback === "bad" ? null : "bad")}
-              className={cn(
-                "p-1.5 rounded-lg text-xs transition-all cursor-pointer flex items-center gap-1",
-                feedback === "bad"
-                  ? "text-rose-400 bg-rose-500/15 border border-rose-500/30"
-                  : "text-[#A6A49B] hover:text-[#ECEBE4] hover:bg-white/[0.06]"
-              )}
-            >
-              <ThumbsDown size={12} />
-              {feedback === "bad" && <span className="text-[11px] font-medium pr-0.5">Cần cải thiện</span>}
-            </button>
+                <button
+                  type="button"
+                  aria-label="Chưa hài lòng"
+                  title={feedback === "bad" ? "Đã ghi nhận phản hồi" : "Chưa hài lòng"}
+                  onClick={() => setFeedback(feedback === "bad" ? null : "bad")}
+                  className={cn(
+                    "p-1.5 rounded-lg text-xs transition-all cursor-pointer flex items-center gap-1",
+                    feedback === "bad"
+                      ? "text-rose-400 bg-rose-500/15 border border-rose-500/30"
+                      : "text-[#A6A49B] hover:text-[#ECEBE4] hover:bg-white/[0.06]"
+                  )}
+                >
+                  <ThumbsDown size={12} />
+                  {feedback === "bad" && <span className="text-[11px] font-medium pr-0.5">Cần cải thiện</span>}
+                </button>
 
-            {onRegenerate && (
-              <button
-                type="button"
-                aria-label="Tạo lại câu trả lời"
-                title="Tạo lại câu trả lời"
-                onClick={() => {
-                  setIsRetrying(true);
-                  onRegenerate();
-                  setTimeout(() => setIsRetrying(false), 2000);
-                }}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs text-[#A6A49B] hover:text-[#ECEBE4] hover:bg-white/[0.06] transition-all cursor-pointer font-sans active:scale-95"
-              >
-                <RefreshCw size={12} className={cn("transition-transform", isRetrying && "animate-spin text-[#D97757]")} />
-                <span>{isRetrying ? "Đang tạo lại..." : "Tạo lại"}</span>
-              </button>
+                {onRegenerate && (
+                  <button
+                    type="button"
+                    aria-label="Tạo lại câu trả lời"
+                    title="Tạo lại câu trả lời"
+                    onClick={() => {
+                      setIsRetrying(true);
+                      onRegenerate();
+                      setTimeout(() => setIsRetrying(false), 2000);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs text-[#A6A49B] hover:text-[#ECEBE4] hover:bg-white/[0.06] transition-all cursor-pointer font-sans active:scale-95"
+                  >
+                    <RefreshCw size={12} className={cn("transition-transform", isRetrying && "animate-spin text-[#D97757]")} />
+                    <span>{isRetrying ? "Đang tạo lại..." : "Tạo lại"}</span>
+                  </button>
+                )}
+              </>
             )}
           </div>
-        )}
+
+          {/* Response time indicator: Live ticking while streaming, exact latency when done */}
+          {Boolean((streaming && liveElapsed > 0) || message.latencyMs) && (
+            <div
+              className={cn(
+                "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono select-none transition-all",
+                streaming
+                  ? "text-[#D97757] bg-[#D97757]/10 border border-[#D97757]/20 animate-pulse"
+                  : "text-[#75736C] hover:text-[#A6A49B] bg-white/[0.03] border border-white/[0.05]"
+              )}
+              title={
+                streaming
+                  ? "Đang tính thời gian phản hồi..."
+                  : `Thời gian phản hồi câu hỏi: ${formatLatency(message.latencyMs)}`
+              }
+            >
+              <Zap
+                size={11}
+                className={cn(
+                  "shrink-0",
+                  streaming ? "text-[#D97757] fill-[#D97757]" : "text-[#8E8B82]"
+                )}
+              />
+              <span>
+                {streaming
+                  ? `${(liveElapsed / 1000).toFixed(1)}s`
+                  : formatLatency(message.latencyMs)}
+              </span>
+            </div>
+          )}
+        </div>
       </div>
       </div>
     </article>

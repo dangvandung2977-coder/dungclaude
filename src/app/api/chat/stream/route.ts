@@ -451,7 +451,7 @@ When asked to write software, build projects, or produce code:
         if (process.env.NODE_ENV !== "production") {
           console.log(`[CHAT] stream complete: conv=${conv.id} msg=${assistantMsg.id} latency=${Date.now() - started}ms`);
         }
-        send("done", { messageId: assistantMsg.id });
+        send("done", { messageId: assistantMsg.id, latencyMs: Date.now() - started });
         try { controller.close(); } catch { /* ignore */ }
       } catch (e) {
         if (req.signal.aborted) {

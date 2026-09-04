@@ -132,19 +132,45 @@ export async function listMessages(conversationId: string, limit = 500): Promise
 
   const sb = getSupabase();
   // Single relational query joining messages and message_parts
-  const { data: msgs, error } = await sb.from("messages")
-    .select("*, message_parts(*)")
-    .eq("conversation_id", conversationId)
-    .order("created_at", { ascending: true })
-    .limit(limit);
+  const [msgsRes, usageRes] = await Promise.all([
+    sb.from("messages")
+      .select("*, message_parts(*)")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: true })
+      .limit(limit),
+    (async () => {
+      try {
+        const { data } = await sb.from("usage_events")
+          .select("message_id, duration_ms")
+          .eq("conversation_id", conversationId)
+          .not("message_id", "is", null)
+          .limit(limit);
+        return (data ?? []) as Row[];
+      } catch {
+        return [] as Row[];
+      }
+    })(),
+  ]);
+
+  const { data: msgs, error } = msgsRes;
   if (error) throw dbError(error, "Không tải được messages");
   const rows = ((msgs ?? []) as Row[]);
   if (!rows.length) return [];
 
+  const latencyMap = new Map<string, number>();
+  if (Array.isArray(usageRes)) {
+    for (const u of usageRes) {
+      if (u.message_id && u.duration_ms) {
+        latencyMap.set(String(u.message_id), Number(u.duration_ms));
+      }
+    }
+  }
+
   const result = rows.map((r) => {
     const rawParts = Array.isArray(r.message_parts) ? (r.message_parts as Row[]) : [];
+    const msgId = str(r.id);
     return {
-      id: str(r.id),
+      id: msgId,
       conversationId: str(r.conversation_id),
       role: r.role as Message["role"],
       parts: rawParts.map(mapPart),
@@ -153,6 +179,7 @@ export async function listMessages(conversationId: string, limit = 500): Promise
       inputTokens: num(r.input_tokens),
       outputTokens: num(r.output_tokens),
       costUsd: num(r.cost_usd),
+      latencyMs: latencyMap.get(msgId),
       createdAt: str(r.created_at),
     };
   });

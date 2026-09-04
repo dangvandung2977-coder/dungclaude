@@ -313,6 +313,7 @@ export function ChatView({
     isGeneratingRef.current = true;
     setStreaming(true);
     setStatus("Thinking…");
+    const streamStartTime = Date.now();
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -449,14 +450,26 @@ export function ChatView({
                 costUsd: j.estimatedCostUsd,
                 cachedInputTokens: undefined,
               });
+              if (typeof j.latencyMs === "number" && j.latencyMs > 0) {
+                setMessages((s) =>
+                  s.map((m) =>
+                    m.id === currentAsstId
+                      ? { ...m, latencyMs: j.latencyMs }
+                      : m
+                  )
+                );
+              }
             } else if (type === "done") {
               const finalId = j.messageId || currentAsstId;
               if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
               setStatus("");
+              const finalLatency = typeof j.latencyMs === "number" && j.latencyMs > 0
+                ? j.latencyMs
+                : (streamStartTime ? Date.now() - streamStartTime : undefined);
               setMessages((s) =>
                 s.map((m) =>
                   m.id === currentAsstId
-                    ? { ...m, id: finalId, content: acc, status: "completed" as const }
+                    ? { ...m, id: finalId, content: acc, latencyMs: finalLatency, status: "completed" as const }
                     : m
                 )
               );
