@@ -34,6 +34,12 @@ export const REASONING_EFFORT_OPTIONS: Array<{
   description: string;
 }> = [
   {
+    id: "minimal",
+    label: "Nhanh (Minimal)",
+    shortLabel: "Nhanh",
+    description: "Gần như tắt suy luận — trả kết quả càng nhanh càng tốt",
+  },
+  {
     id: "low",
     label: "Thấp (Low)",
     shortLabel: "Thấp",

@@ -47,9 +47,9 @@ const schema = z.object({
   systemPrompt: z.string().max(10000).optional(),
   responseLength: z.enum(["concise", "balanced", "detailed"]).optional().default("balanced"),
   optimizationMode: z.enum(["cost_efficient", "balanced", "max_quality"]).optional(),
-  reasoningEffort: z.enum(["low", "medium", "high", "max"]).optional(),
-  model_reasoning_effort: z.enum(["low", "medium", "high", "max"]).optional(),
-  reasoning_effort: z.enum(["low", "medium", "high", "max"]).optional(),
+  reasoningEffort: z.enum(["minimal", "low", "medium", "high", "max"]).optional(),
+  model_reasoning_effort: z.enum(["minimal", "low", "medium", "high", "max"]).optional(),
+  reasoning_effort: z.enum(["minimal", "low", "medium", "high", "max"]).optional(),
 });
 
 export async function POST(req: Request): Promise<Response> {

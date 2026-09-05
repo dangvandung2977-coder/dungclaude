@@ -450,6 +450,8 @@ export function Composer({
                       ? "bg-purple-950/40 text-purple-300 border-purple-500/30 hover:bg-purple-900/50 hover:border-purple-500/50"
                       : activeEffort === "medium"
                       ? "bg-amber-950/40 text-amber-300 border-amber-500/30 hover:bg-amber-900/50 hover:border-amber-500/50"
+                      : activeEffort === "minimal"
+                      ? "bg-emerald-950/40 text-emerald-300 border-emerald-500/30 hover:bg-emerald-900/50 hover:border-emerald-500/50"
                       : "bg-blue-950/40 text-blue-300 border-blue-500/30 hover:bg-blue-900/50 hover:border-blue-500/50"
                   )}
                 >
@@ -460,7 +462,7 @@ export function Composer({
                   ) : activeEffort === "medium" ? (
                     <Brain size={12} className="text-amber-400" />
                   ) : (
-                    <Zap size={12} className="text-blue-400" />
+                    <Zap size={12} className={activeEffort === "minimal" ? "text-emerald-400" : "text-blue-400"} />
                   )}
                   <span>
                     {activeEffort === "max"
@@ -469,6 +471,8 @@ export function Composer({
                       ? "Effort: Cao"
                       : activeEffort === "medium"
                       ? "Effort: Vừa"
+                      : activeEffort === "minimal"
+                      ? "Effort: Nhanh"
                       : "Effort: Thấp"}
                   </span>
                   <ChevronDown
@@ -516,6 +520,8 @@ export function Composer({
                                     ? "text-purple-300"
                                     : opt.id === "medium"
                                     ? "text-amber-300"
+                                    : opt.id === "minimal"
+                                    ? "text-emerald-300"
                                     : "text-blue-300"
                                 )}
                               >
@@ -526,7 +532,7 @@ export function Composer({
                                 ) : opt.id === "medium" ? (
                                   <Brain size={12} />
                                 ) : (
-                                  <Zap size={12} />
+                                  <Zap size={12} className={opt.id === "minimal" ? "text-emerald-300" : undefined} />
                                 )}
                                 <span>{opt.label}</span>
                               </div>
@@ -543,6 +549,8 @@ export function Composer({
                                     ? "text-purple-400"
                                     : opt.id === "medium"
                                     ? "text-amber-400"
+                                    : opt.id === "minimal"
+                                    ? "text-emerald-400"
                                     : "text-blue-400"
                                 )}
                               />

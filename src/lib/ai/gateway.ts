@@ -172,7 +172,7 @@ async function callOpenAICompatible(opts: {
   baseUrl: string; apiKey: string; model: string; messages: GatewayMessage[];
   tools: GatewayTool[]; cb: StreamCallbacks; timeoutMs: number; maxTokens?: number;
   supportsStreaming?: boolean; capabilities?: string[];
-  reasoningEffort?: "low" | "medium" | "high" | "max";
+  reasoningEffort?: "minimal" | "low" | "medium" | "high" | "max";
 }): Promise<RawCallResult> {
   // 1. Determine if this model / endpoint supports streaming
   let isStream = opts.supportsStreaming;
@@ -210,7 +210,7 @@ async function callOpenAICompatible(opts: {
     // For z-ai/glm-5.3-free, default to "high" (max effort per user request)
     const effort = overrideEffort ?? opts.reasoningEffort ?? (isGlm53Free ? "high" : undefined);
     if (isReasoningSupported && effort) {
-      body.reasoning_effort = effort;
+      body.reasoning_effort = effort === "minimal" ? "low" : effort;
     }
 
     // For OpenAI o-series: max_completion_tokens instead of max_tokens, and omit temperature
@@ -239,7 +239,7 @@ async function callOpenAICompatible(opts: {
   const executePost = async (
     modelName: string,
     streamMode: boolean,
-    overrideEffort?: "low" | "medium" | "high" | "max"
+    overrideEffort?: "minimal" | "low" | "medium" | "high" | "max"
   ) => {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs);
@@ -366,7 +366,7 @@ async function callAnthropic(opts: {
   apiKey: string; model: string; messages: GatewayMessage[]; system?: string;
   stableSystemPrefix?: string; tools: GatewayTool[]; cb: StreamCallbacks;
   timeoutMs: number; maxTokens?: number;
-  reasoningEffort?: "low" | "medium" | "high" | "max";
+  reasoningEffort?: "minimal" | "low" | "medium" | "high" | "max";
 }): Promise<RawCallResult> {
   // Convert to Anthropic blocks: images as base64 source, video/files as text context.
   const messages = opts.messages.filter((m) => m.role !== "system").map((m) => {
@@ -403,7 +403,9 @@ async function callAnthropic(opts: {
   let maxTokens = 64000;
   if (isThinkingModel && opts.reasoningEffort) {
     const budget =
-      opts.reasoningEffort === "low"
+      opts.reasoningEffort === "minimal"
+        ? 1024
+        : opts.reasoningEffort === "low"
         ? 2048
         : opts.reasoningEffort === "medium"
         ? 8192
@@ -733,7 +735,7 @@ export async function runGateway(opts: {
   maxTokens?: number; // dynamic output budget (optimization engine)
   supportsStreaming?: boolean;
   capabilities?: string[];
-  reasoningEffort?: "low" | "medium" | "high" | "max";
+  reasoningEffort?: "minimal" | "low" | "medium" | "high" | "max";
 }): Promise<GatewayResult> {
   const provider = providerOf(opts.modelId);
   const model = modelNameOf(opts.modelId);

@@ -231,7 +231,7 @@ function ImageStudioContent() {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--background)] text-[var(--text)] pb-16">
+    <div className="h-full overflow-y-auto thin-scroll bg-[var(--background)] text-[var(--text)] pb-16">
       <Toasts />
 
       {/* Header Banner */}
@@ -720,7 +720,7 @@ export default function ImageStudioPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen bg-[var(--background)] flex items-center justify-center">
+        <div className="h-full bg-[var(--background)] flex items-center justify-center">
           <div className="flex items-center gap-2 text-[#D97757]">
             <RefreshCw size={20} className="animate-spin" />
             <span className="text-sm font-medium text-[#ECEBE4]">Đang tải Image Studio...</span>
