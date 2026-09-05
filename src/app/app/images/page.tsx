@@ -321,8 +321,6 @@ function ImageStudioContent() {
                     </button>
                   )}
                 </div>
-
-                </div>
               </div>
 
               {/* Inspiration Pills */}
