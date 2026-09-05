@@ -276,14 +276,7 @@ export async function generateImage(params: ImageGenParams): Promise<GeneratedIm
           };
           if (sizeParam) bodyPayload.size = sizeParam;
           if (params.referenceImages && params.referenceImages.length > 0) {
-            bodyPayload.reference_images = params.referenceImages.map((r) => r.url);
             bodyPayload.image = params.referenceImages[0].url;
-          }
-          if (params.negativePrompt) {
-            bodyPayload.negative_prompt = params.negativePrompt;
-          }
-          if (params.seed !== undefined) {
-            bodyPayload.seed = params.seed;
           }
           return fetch(url, {
             method: "POST",
@@ -501,12 +494,18 @@ export async function generateImageBatch(
     return [single];
   }
 
-  // Run `count` parallel generations with distinct variation seeds
-  const baseSeed = params.seed ?? Math.floor(Math.random() * 1000000);
+  // Run `count` parallel generations with subtle variation phrasing for distinct aesthetic interpretations
+  const variationPhrases = [
+    "",
+    ", variation B: alternative angle, fresh perspective",
+    ", variation C: dramatic lighting, nuanced composition",
+    ", variation D: rich atmospheric depth, detailed focus",
+  ];
+
   const tasks = Array.from({ length: count }, (_, idx) => {
     return generateImage({
       ...params,
-      seed: baseSeed + idx * 7,
+      prompt: idx === 0 ? params.prompt : `${params.prompt}${variationPhrases[idx] || ""}`,
     });
   });
 
