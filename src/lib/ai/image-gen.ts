@@ -292,10 +292,10 @@ export async function generateImage(params: ImageGenParams): Promise<GeneratedIm
           lastError = `Không thể kết nối đến ${url}: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`;
         }
 
-        // If 502 / 503 / 504 from reverse proxy / cloudflare, retry once after short delay
-        if (resp && (resp.status === 502 || resp.status === 503 || resp.status === 504)) {
-          console.warn(`[ImageGen] Custom endpoint returned ${resp.status}, retrying once after 1.2s...`);
-          await new Promise((r) => setTimeout(r, 1200));
+        // If 429 (rate limit) or 502 / 503 / 504 from upstream, wait 1.5s and retry once
+        if (resp && (resp.status === 429 || resp.status === 502 || resp.status === 503 || resp.status === 504)) {
+          console.warn(`[ImageGen] Custom endpoint returned ${resp.status}, retrying once after 1.5s...`);
+          await new Promise((r) => setTimeout(r, 1500));
           try {
             resp = await callEndpoint(apiSize);
           } catch {}
@@ -483,7 +483,8 @@ export async function generateImage(params: ImageGenParams): Promise<GeneratedIm
 }
 
 /**
- * Generates multiple images in parallel (batch generation: 1, 2, or 4 images like Google Flow / Midjourney).
+ * Generates multiple images (batch generation: 1, 2, or 4 images like Google Flow / Midjourney).
+ * Uses sequential generation with pacing to prevent upstream rate-limits (429).
  */
 export async function generateImageBatch(
   params: ImageGenParams & { count?: number }
@@ -494,7 +495,6 @@ export async function generateImageBatch(
     return [single];
   }
 
-  // Run `count` parallel generations with subtle variation phrasing for distinct aesthetic interpretations
   const variationPhrases = [
     "",
     ", variation B: alternative angle, fresh perspective",
@@ -502,23 +502,23 @@ export async function generateImageBatch(
     ", variation D: rich atmospheric depth, detailed focus",
   ];
 
-  const tasks = Array.from({ length: count }, (_, idx) => {
-    return generateImage({
-      ...params,
-      prompt: idx === 0 ? params.prompt : `${params.prompt}${variationPhrases[idx] || ""}`,
-    });
-  });
-
-  const settled = await Promise.allSettled(tasks);
   const results: GeneratedImageResult[] = [];
   let firstError: Error | null = null;
 
-  for (const item of settled) {
-    if (item.status === "fulfilled") {
-      results.push(item.value);
-    } else {
+  for (let idx = 0; idx < count; idx++) {
+    try {
+      if (idx > 0) {
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+      const img = await generateImage({
+        ...params,
+        prompt: idx === 0 ? params.prompt : `${params.prompt}${variationPhrases[idx] || ""}`,
+      });
+      results.push(img);
+    } catch (err) {
+      console.warn(`[ImageGen] Batch item ${idx + 1} encountered error:`, err);
       if (!firstError) {
-        firstError = item.reason instanceof Error ? item.reason : new Error(String(item.reason));
+        firstError = err instanceof Error ? err : new Error(String(err));
       }
     }
   }
