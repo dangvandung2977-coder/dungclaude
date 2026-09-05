@@ -28,7 +28,15 @@ export function ModelSelector({ models, modelId, onSelect, compact = false }: Mo
   }, [open]);
 
   const safeModels = Array.isArray(models) ? models : [];
-  const visibleModels = safeModels.filter((m) => m && m.enabled && typeof m.id === "string" && !m.id.startsWith("demo:"));
+  const visibleModels = safeModels.filter((m) => {
+    if (!m || !m.enabled || typeof m.id !== "string" || m.id.startsWith("demo:")) return false;
+    const caps = m.capabilities || [];
+    // Exclude dedicated image generation models from chat model selector
+    if (caps.includes("image_gen") && !caps.includes("chat")) return false;
+    if (/dall-e|flux|sdxl|stable-diffusion|imagen|midjourney/i.test(m.id)) return false;
+    if (m.name && /image model|tạo ảnh/i.test(m.name) && !caps.includes("chat")) return false;
+    return true;
+  });
   const currentModel = visibleModels.find((m) => m.id === modelId) || visibleModels[0];
 
   function getDisplayLabel() {

@@ -349,3 +349,53 @@ export async function generateImage(params: ImageGenParams): Promise<GeneratedIm
     createdAt: new Date().toISOString(),
   };
 }
+
+/**
+ * Detects if a user message in chat is asking to create/draw an image.
+ * Returns { isImage: boolean; prompt: string }
+ */
+export function isImageGenerationRequest(content: string): { isImage: boolean; prompt: string } {
+  if (!content) return { isImage: false, prompt: "" };
+  const raw = content.trim();
+
+  // Explicit slash command or tag: /image, /draw, /taoanh, /ve
+  const slashMatch = raw.match(/^\/(?:image|draw|img|taoanh|ve)\s+(.+)/i);
+  if (slashMatch && slashMatch[1]) {
+    return { isImage: true, prompt: slashMatch[1].trim() };
+  }
+
+  // Common Vietnamese prefixes:
+  // "vẽ cho tôi...", "hãy vẽ...", "tạo ảnh...", "vẽ bức tranh...", "vẽ một...", "tạo hình ảnh..."
+  const patterns = [
+    /^(?:hãy\s+)?(?:vẽ\s+cho\s+(?:tôi|mình|em)|vẽ\s+giúp\s+(?:tôi|mình)|vẽ\s+hộ|vẽ\s+ngay|hãy\s+vẽ|vẽ\s+một|vẽ\s+bức\s+tranh|vẽ\s+hình|vẽ\s+ảnh|tạo\s+ảnh|tạo\s+hình\s+ảnh|tạo\s+bức\s+ảnh|sinh\s+ảnh|phác\s+họa)\s*[:,\s]+(.+)$/i,
+    /^(?:vẽ|tạo\s+ảnh|sinh\s+ảnh)\s+(.+)$/i,
+    /^(?:please\s+)?(?:generate\s+an?\s+image\s+of|generate\s+image|draw\s+me\s+an?|draw\s+an?\s+image\s+of|draw\s+a|create\s+an?\s+image\s+of|make\s+a\s+picture\s+of|render\s+an?\s+image\s+of)\s*[:,\s]+(.+)$/i,
+    /^(?:draw|paint|illustrate)\s+(.+)$/i,
+  ];
+
+  for (const p of patterns) {
+    const match = raw.match(p);
+    if (match && match[1]) {
+      let prompt = match[1].trim();
+      prompt = prompt.replace(/^(?:về|với|là|một|1|bức\s+ảnh\s+về|bức\s+tranh\s+về)\s+/i, "").trim();
+      if (prompt.length >= 2) {
+        return { isImage: true, prompt };
+      }
+    }
+  }
+
+  // Strong phrase detection anywhere in the prompt
+  const strongPhrases = [
+    /(?:vẽ\s+cho\s+(?:tôi|mình)|hãy\s+vẽ\s+giúp|tạo\s+ảnh\s+giúp|tạo\s+cho\s+(?:tôi|mình)\s+bức\s+ảnh)\s+(.+)/i,
+    /(?:tạo\s+ảnh|sinh\s+ảnh)\s+(?:con|chú|cô|bức|phong cảnh|chân dung|avatar|hình|tranh)\s+(.+)/i,
+  ];
+  for (const sp of strongPhrases) {
+    const match = raw.match(sp);
+    if (match && match[1]) {
+      return { isImage: true, prompt: match[1].trim() };
+    }
+  }
+
+  return { isImage: false, prompt: "" };
+}
+

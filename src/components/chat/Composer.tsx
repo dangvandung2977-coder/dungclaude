@@ -14,6 +14,7 @@ import {
   Flame,
   ChevronDown,
   Check,
+  Palette,
 } from "lucide-react";
 import { ModelSelector } from "./ModelSelector";
 import { CircularLoader } from "@/components/ui/CircularLoader";
@@ -433,6 +434,24 @@ export function Composer({
                 Cowork
               </button>
             </div>
+
+            {/* Quick Tạo ảnh button */}
+            <button
+              type="button"
+              onClick={() => {
+                if (!text.trim()) {
+                  setText("Vẽ cho tôi: ");
+                } else if (!/^(?:vẽ|tạo ảnh|sinh ảnh|draw)/i.test(text.trim())) {
+                  setText(`Vẽ cho tôi: ${text.trim()}`);
+                }
+                taRef.current?.focus();
+              }}
+              title="Yêu cầu AI vẽ / tạo hình ảnh trực tiếp trong cuộc trò chuyện"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 transition-all cursor-pointer select-none"
+            >
+              <Palette size={12} className="text-rose-400" />
+              <span>Tạo ảnh</span>
+            </button>
 
             {/* Reasoning Effort Pill Toggle */}
             {isReasoning && (

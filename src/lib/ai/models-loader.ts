@@ -32,9 +32,18 @@ export async function loadCachedModels(): Promise<AIModel[]> {
   );
   const readyProviders = new Set(providerChecks.filter((x) => x.ready).map((x) => x.provider));
 
+  function isImageOnlyModel(m: AIModel): boolean {
+    const caps = m.capabilities || [];
+    if (caps.includes("image_gen") && !caps.includes("chat")) return true;
+    if (/dall-e|flux|sdxl|stable-diffusion|imagen|midjourney/i.test(m.id)) return true;
+    if (m.name && /image model|tạo ảnh/i.test(m.name) && !caps.includes("chat")) return true;
+    return false;
+  }
+
   for (const m of all) {
     if (!m.enabled) continue;
     if (m.id.startsWith("demo:")) continue;
+    if (isImageOnlyModel(m)) continue;
     if (readyProviders.has(m.provider)) {
       models.push({
         ...m,
@@ -44,7 +53,7 @@ export async function loadCachedModels(): Promise<AIModel[]> {
   }
 
   for (const m of customs) {
-    if (m.enabled) {
+    if (m.enabled && !isImageOnlyModel(m)) {
       models.push({
         ...m,
         description: notes[m.id] || m.description,

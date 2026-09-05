@@ -300,6 +300,12 @@ function ImageStudioContent() {
                     id="promptInput"
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
+                    onKeyDown={(e) => {
+                      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                        e.preventDefault();
+                        handleGenerate();
+                      }
+                    }}
                     rows={4}
                     placeholder="VD: Một chú rồng vàng uy nghi bay qua đỉnh núi tuyết mờ ảo, ánh bình minh điện ảnh rực rỡ..."
                     className="w-full bg-[#1A1917] border border-white/10 rounded-xl p-3 text-sm text-[#ECEBE4] placeholder-[#75736C] focus:outline-none focus:border-[#D97757]/60 focus:ring-1 focus:ring-[#D97757]/40 resize-none transition-all"
@@ -308,12 +314,39 @@ function ImageStudioContent() {
                     <button
                       type="button"
                       onClick={() => setPrompt("")}
-                      className="absolute top-2.5 right-2.5 p-1 rounded-md text-[#75736C] hover:text-[#ECEBE4] hover:bg-white/10 text-xs transition-colors"
+                      className="absolute top-2.5 right-2.5 p-1 rounded-md text-[#75736C] hover:text-[#ECEBE4] hover:bg-white/10 text-xs transition-colors cursor-pointer"
                       title="Xóa nội dung"
                     >
                       ✕
                     </button>
                   )}
+                </div>
+
+                {/* Immediate Generate Button right under Prompt */}
+                <div className="mt-2.5 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleGenerate()}
+                    disabled={isGenerating || !prompt.trim()}
+                    className={cn(
+                      "flex-1 py-2.5 px-4 rounded-xl font-semibold text-xs sm:text-sm text-white flex items-center justify-center gap-2 transition-all shadow-md active:scale-[0.99] cursor-pointer",
+                      isGenerating || !prompt.trim()
+                        ? "bg-[#D97757]/40 text-white/50 cursor-not-allowed"
+                        : "bg-[#D97757] hover:bg-[#E2886A] shadow-[0_0_20px_rgba(217,119,87,0.35)]"
+                    )}
+                  >
+                    {isGenerating ? (
+                      <>
+                        <RefreshCw size={15} className="animate-spin text-white" />
+                        <span>Đang tạo ảnh nghệ thuật...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles size={15} />
+                        <span>Tạo ảnh ngay (Ctrl + Enter)</span>
+                      </>
+                    )}
+                  </button>
                 </div>
               </div>
 
@@ -448,30 +481,32 @@ function ImageStudioContent() {
                 </div>
               </div>
 
-              {/* Generate Button */}
-              <button
-                type="button"
-                onClick={() => handleGenerate()}
-                disabled={isGenerating || !prompt.trim()}
-                className={cn(
-                  "w-full py-3 px-4 rounded-xl font-medium text-sm text-white flex items-center justify-center gap-2 transition-all shadow-md active:scale-[0.99] cursor-pointer",
-                  isGenerating || !prompt.trim()
-                    ? "bg-[#D97757]/40 text-white/50 cursor-not-allowed"
-                    : "bg-[#D97757] hover:bg-[#E2886A] shadow-[0_0_20px_rgba(217,119,87,0.3)] hover:shadow-[0_0_25px_rgba(217,119,87,0.45)]"
-                )}
-              >
-                {isGenerating ? (
-                  <>
-                    <RefreshCw size={16} className="animate-spin text-white" />
-                    <span>Đang tạo ảnh nghệ thuật...</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles size={16} />
-                    <span>Tạo ảnh ngay</span>
-                  </>
-                )}
-              </button>
+              {/* Generate Button Sticky at bottom */}
+              <div className="sticky bottom-0 z-10 pt-3 pb-1 bg-gradient-to-t from-[#161514] via-[#161514]/95 to-transparent">
+                <button
+                  type="button"
+                  onClick={() => handleGenerate()}
+                  disabled={isGenerating || !prompt.trim()}
+                  className={cn(
+                    "w-full py-3 px-4 rounded-xl font-semibold text-sm text-white flex items-center justify-center gap-2 transition-all shadow-xl active:scale-[0.99] cursor-pointer border border-[#D97757]/30",
+                    isGenerating || !prompt.trim()
+                      ? "bg-[#D97757]/40 text-white/50 cursor-not-allowed"
+                      : "bg-[#D97757] hover:bg-[#E2886A] shadow-[0_0_25px_rgba(217,119,87,0.45)] hover:shadow-[0_0_30px_rgba(217,119,87,0.6)]"
+                  )}
+                >
+                  {isGenerating ? (
+                    <>
+                      <RefreshCw size={16} className="animate-spin text-white" />
+                      <span>Đang tạo ảnh nghệ thuật...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={16} />
+                      <span>Tạo ảnh ngay</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -527,9 +562,20 @@ function ImageStudioContent() {
                     <h3 className="text-sm font-semibold text-[#ECEBE4] mb-1">
                       Chưa có tác phẩm nào
                     </h3>
-                    <p className="text-xs text-[#75736C] max-w-sm">
+                    <p className="text-xs text-[#75736C] max-w-sm mb-4">
                       Nhập ý tưởng của bạn ở bảng điều khiển bên trái, chọn phong cách yêu thích và nhấn <strong>Tạo ảnh ngay</strong> để bắt đầu.
                     </p>
+                    {prompt.trim() && (
+                      <button
+                        type="button"
+                        onClick={() => handleGenerate()}
+                        disabled={isGenerating}
+                        className="px-4 py-2 rounded-xl text-xs font-semibold bg-[#D97757] hover:bg-[#E2886A] text-white flex items-center gap-2 shadow-md cursor-pointer transition-all active:scale-95"
+                      >
+                        <Sparkles size={13} />
+                        <span>Bấm để tạo ảnh ngay với prompt này</span>
+                      </button>
+                    )}
                   </div>
                 )}
               </div>

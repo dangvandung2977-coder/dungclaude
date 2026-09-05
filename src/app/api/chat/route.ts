@@ -13,7 +13,8 @@ import {
 } from "@/lib/db/repos";
 import { resolveModel } from "@/lib/ai/providers-config";
 import { runGateway, type VisionAttachment } from "@/lib/ai/gateway";
-import { executeTool } from "@/lib/tools/tools";
+import { executeTool, TOOL_DEFS } from "@/lib/tools/tools";
+import { isImageGenerationRequest, generateImage } from "@/lib/ai/image-gen";
 import { calcCost, estimateTokens } from "@/lib/ai/registry";
 import { getCustomModelsAsAIModels } from "@/lib/ai/custom-endpoints";
 import { loadCachedModels } from "@/lib/ai/models-loader";
@@ -166,14 +167,23 @@ CRITICAL:
 5. The prompt MUST be 100% inside this single block so the user can 1-click copy and insert it into their chat composer!`
       : "";
 
+    const imgIntent = isImageGenerationRequest(body.content);
+    const imageGenGuidance = imgIntent.isImage
+      ? `\n\n[CRITICAL IMAGE GENERATION INSTRUCTION]:
+The user explicitly requests generating or drawing an image for: "${imgIntent.prompt}".
+You MUST call the "generate_image" tool with prompt: "${imgIntent.prompt}" to create the artwork.`
+      : "";
+
+    const enabledTools = TOOL_DEFS.filter((t) => ["calculator", "file_search", "generate_image"].includes(t.name));
+
     const result = await runGateway({
       modelId: optimized.routing.modelId,
       messages: optimized.messages.map((m, i) =>
         i === optimized.messages.length - 1 ? { ...m, attachments: atts } : m
       ),
-      system: `${optimized.system}${promptEnforcement}`,
+      system: `${optimized.system}${promptEnforcement}${imageGenGuidance}`,
       stableSystemPrefix: optimized.stableSystemPrefix,
-      tools: [],
+      tools: enabledTools,
       maxTokens: undefined,
       supportsStreaming: false, // Explicitly non-streaming request
       capabilities: modelMeta?.capabilities,
@@ -214,6 +224,31 @@ CRITICAL:
             });
           }
         } catch {}
+      }
+    }
+
+    // Auto-generation fallback: If user requested an image but the model did not execute tool call
+    if (imgIntent.isImage && generatedImageParts.length === 0) {
+      try {
+        const autoImg = await generateImage({
+          prompt: imgIntent.prompt,
+          userId: user.id,
+          conversationId: conv.id,
+        });
+        if (autoImg && (autoImg.url || autoImg.id)) {
+          generatedImageParts.push({
+            type: "image",
+            url: autoImg.url,
+            fileId: autoImg.id,
+            fileName: autoImg.fileName || "ai-generated-image.png",
+            mimeType: "image/png",
+          });
+          if (!full.trim()) {
+            full = `Tôi đã tạo hình ảnh "${imgIntent.prompt}" cho bạn:`;
+          }
+        }
+      } catch (err) {
+        console.warn("[AutoImageGen] non-stream fallback error:", err);
       }
     }
 

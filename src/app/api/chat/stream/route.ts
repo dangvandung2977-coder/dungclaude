@@ -29,6 +29,7 @@ import {
   failActiveTask,
 } from "@/lib/ai/active-tasks";
 import { isPromptCreationRequest } from "@/lib/prompt-intent";
+import { isImageGenerationRequest, generateImage } from "@/lib/ai/image-gen";
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -217,7 +218,8 @@ export async function POST(req: Request): Promise<Response> {
   const prj = await projectPromise;
   if (prj?.instructions) projectInstructions = `[Project instructions — always follow]:\n${prj.instructions}`;
 
-  let enabledToolNames: string[] = ["calculator", "file_search"];
+  const imgIntent = isImageGenerationRequest(body.content);
+  let enabledToolNames: string[] = ["calculator", "file_search", "generate_image"];
   if (Array.isArray(body.tools)) {
     enabledToolNames = body.tools;
   } else if (body.tools && typeof body.tools === "object") {
@@ -226,6 +228,10 @@ export async function POST(req: Request): Promise<Response> {
     if (tObj.calculator !== false) enabledToolNames.push("calculator");
     if (tObj.fileSearch !== false) enabledToolNames.push("file_search");
     if (tObj.webSearch) enabledToolNames.push("web_search");
+    if (tObj.generateImage !== false) enabledToolNames.push("generate_image");
+  }
+  if (imgIntent.isImage && !enabledToolNames.includes("generate_image")) {
+    enabledToolNames.push("generate_image");
   }
   const enabledTools = TOOL_DEFS.filter((t) => enabledToolNames.includes(t.name));
 
@@ -341,10 +347,16 @@ CRITICAL:
 5. The prompt MUST be 100% inside this single block so the user can 1-click copy and insert it into their chat composer!`
           : "";
 
+        const imageGenGuidance = imgIntent.isImage
+          ? `\n\n[CRITICAL IMAGE GENERATION INSTRUCTION]:
+The user explicitly requests generating or drawing an image for: "${imgIntent.prompt}".
+You MUST call the "generate_image" tool with prompt: "${imgIntent.prompt}" to create the artwork.`
+          : "";
+
         const result = await runGateway({
           modelId: optimized.routing.modelId,
           messages: optimized.messages.map((m, i) => i === optimized.messages.length - 1 ? { ...m, attachments: atts } : m),
-          system: `${optimized.system}${promptEnforcement}`,
+          system: `${optimized.system}${promptEnforcement}${imageGenGuidance}`,
           stableSystemPrefix: optimized.stableSystemPrefix,
           tools: enabledTools,
           maxTokens: undefined,
@@ -396,6 +408,42 @@ CRITICAL:
                 });
               }
             } catch {}
+          }
+        }
+
+        // Auto-generation fallback: If user requested an image but the model did not execute tool call
+        if (imgIntent.isImage && generatedImageParts.length === 0) {
+          try {
+            send("status", { status: "Đang tự động khởi tạo hình ảnh cho bạn…" });
+            const autoImg = await generateImage({
+              prompt: imgIntent.prompt,
+              userId: user.id,
+              conversationId: conv.id,
+            });
+            if (autoImg && (autoImg.url || autoImg.id)) {
+              generatedImageParts.push({
+                type: "image",
+                url: autoImg.url,
+                fileId: autoImg.id,
+                fileName: autoImg.fileName || "ai-generated-image.png",
+                mimeType: "image/png",
+              });
+              send("image_generated", {
+                url: autoImg.url,
+                fileId: autoImg.id,
+                fileName: autoImg.fileName,
+                prompt: autoImg.prompt,
+                aspectRatio: autoImg.aspectRatio,
+                model: autoImg.model,
+              });
+              if (!full.trim()) {
+                const autoReply = `Tôi đã tạo hình ảnh "${imgIntent.prompt}" cho bạn:`;
+                full = autoReply;
+                send("token", { delta: autoReply });
+              }
+            }
+          } catch (err) {
+            console.warn("[AutoImageGen] stream fallback error:", err);
           }
         }
         const respondingModelId = result.model || optimized.routing.modelId;
