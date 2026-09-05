@@ -168,54 +168,10 @@ The user requested a prompt. Follow the standard ChatGPT layout with CLEAR SEPAR
       : "";
 
     const imgIntent = isImageGenerationRequest(body.content);
-    if (imgIntent.isImage) {
-      try {
-        const imageResult = await generateImage({
-          prompt: imgIntent.prompt,
-          aspectRatio: imgIntent.aspectRatio || "1:1",
-          style: imgIntent.style,
-          userId: user.id,
-          conversationId: conv.id,
-          projectId: conv.projectId ?? undefined,
-        });
-
-        const finalImgUrl = imageResult.url || (imageResult.id ? `/api/files/${imageResult.id}` : "");
-        const validFileId = imageResult.fileId || (imageResult.id && !imageResult.id.startsWith("img_") ? imageResult.id : undefined);
-        const replyText = `Tôi đã tạo hình ảnh theo yêu cầu cho bạn: "${imageResult.prompt}".`;
-
-        const assistantMsg = await createMessage({
-          conversationId: conv.id,
-          role: "assistant",
-          content: replyText,
-          parts: [
-            { type: "text", text: replyText },
-            {
-              type: "image",
-              url: finalImgUrl,
-              fileId: validFileId,
-              fileName: imageResult.fileName,
-              mimeType: "image/png",
-            },
-          ],
-          modelId: imageResult.model || "image_gen",
-        });
-
-        return ok({
-          messageId: assistantMsg.id,
-          text: replyText,
-          parts: assistantMsg.parts,
-          model: imageResult.model || "image_gen",
-          costUsd: 0,
-        });
-      } catch (imgErr) {
-        console.warn("[ImageGen] Direct image generation failed, falling back to chat gateway:", imgErr);
-      }
-    }
-
     const imageGenGuidance = imgIntent.isImage
       ? `\n\n[CRITICAL IMAGE GENERATION INSTRUCTION]:
-The user explicitly requests generating or drawing an image for: "${imgIntent.prompt}".
-You MUST call the "generate_image" tool with prompt: "${imgIntent.prompt}" to create the artwork.`
+The user requests creating, generating, or drawing an image based on: "${imgIntent.prompt}".
+You MUST carefully read the conversation context and synthesize a rich, high-quality, professional English visual prompt (describing subject, style, lighting, camera angle, atmosphere, and fine details), and call the "generate_image" tool with this synthesized prompt to produce the image.`
       : "";
 
     const enabledTools = TOOL_DEFS.filter((t) => ["calculator", "file_search", "generate_image", "create_document"].includes(t.name));

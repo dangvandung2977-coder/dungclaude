@@ -274,84 +274,11 @@ export async function POST(req: Request): Promise<Response> {
         }
       };
       send("conversation", { conversationId: conv.id, title: conv.title });
-      if (imgIntent.isImage) {
-        send("image_generating", { prompt: imgIntent.prompt });
-        send("status", { status: `Đang vẽ hình ảnh: ${imgIntent.prompt}…` });
-      }
       const started = Date.now();
       let full = "";
       let assistantMsgSaved = false;
       const toolEvents: Array<{ id: string; name: string; input: unknown; output: string }> = [];
       try {
-        // ── Direct Image Generation branch: user requested an image/artwork ──
-        if (imgIntent.isImage) {
-          send("image_generating", { prompt: imgIntent.prompt });
-          send("status", { status: `Đang kết nối endpoint AI để tạo hình ảnh: "${imgIntent.prompt}"…` });
-
-          try {
-            const imageResult = await generateImage({
-              prompt: imgIntent.prompt,
-              aspectRatio: imgIntent.aspectRatio || "1:1",
-              style: imgIntent.style,
-              userId: user.id,
-              conversationId: conv.id,
-              projectId: conv.projectId ?? undefined,
-            });
-
-            const finalImgUrl = imageResult.url || (imageResult.id ? `/api/files/${imageResult.id}` : "");
-            const validFileId = imageResult.fileId || (imageResult.id && !imageResult.id.startsWith("img_") ? imageResult.id : undefined);
-
-            send("image_generated", {
-              url: finalImgUrl,
-              fileId: validFileId,
-              fileName: imageResult.fileName,
-              prompt: imageResult.prompt,
-              aspectRatio: imageResult.aspectRatio,
-              model: imageResult.model,
-            });
-
-            const replyText = `Tôi đã tạo hình ảnh theo yêu cầu cho bạn: "${imageResult.prompt}".`;
-            send("token", { delta: replyText });
-
-            const assistantMsg = await createMessage({
-              conversationId: conv.id,
-              role: "assistant",
-              content: replyText,
-              parts: [
-                { type: "text", text: replyText },
-                {
-                  type: "image",
-                  url: finalImgUrl,
-                  fileId: validFileId,
-                  fileName: imageResult.fileName,
-                  mimeType: "image/png",
-                },
-              ],
-              modelId: imageResult.model || "image_gen",
-            });
-            assistantMsgSaved = true;
-
-            send("done", {
-              messageId: assistantMsg.id,
-              text: replyText,
-              parts: [
-                { type: "text", text: replyText },
-                {
-                  type: "image",
-                  url: finalImgUrl,
-                  fileId: validFileId,
-                  fileName: imageResult.fileName,
-                  mimeType: "image/png",
-                },
-              ],
-            });
-            controller.close();
-            return;
-          } catch (imgErr) {
-            console.warn("[ImageGen] Direct image generation error, falling back to gateway:", imgErr);
-          }
-        }
-
         const allModels = [...availableModels, ...(await getCustomModelsAsAIModels().catch(() => []))];
         const modelMeta = allModels.find((m) => m.id === optimized.routing.modelId);
         const supportsStreaming = modelMeta?.capabilities
@@ -384,8 +311,8 @@ The user requested a prompt. Follow the standard ChatGPT layout with CLEAR SEPAR
 
         const imageGenGuidance = imgIntent.isImage
           ? `\n\n[CRITICAL IMAGE GENERATION INSTRUCTION]:
-The user explicitly requests generating or drawing an image for: "${imgIntent.prompt}".
-You MUST call the "generate_image" tool with prompt: "${imgIntent.prompt}" to create the artwork.`
+The user requests creating, generating, or drawing an image based on: "${imgIntent.prompt}".
+You MUST carefully read the conversation context and synthesize a rich, high-quality, professional English visual prompt (describing subject, style, lighting, camera angle, atmosphere, and fine details), and call the "generate_image" tool with this synthesized prompt to produce the image.`
           : "";
 
         const result = await runGateway({
@@ -409,12 +336,22 @@ You MUST call the "generate_image" tool with prompt: "${imgIntent.prompt}" to cr
             // Decoupled: only abort when user explicitly stops, NOT when user's local network drops!
             signal: activeTask.abortController.signal,
           },
-          executeTool: (name, input) =>
-            executeTool(name, input, {
+          executeTool: (name, input) => {
+            if (name === "generate_image") {
+              const p = (input as { prompt?: string })?.prompt || "";
+              send("image_generating", { prompt: p });
+              send("status", { status: `Đang kết nối endpoint AI để tạo hình ảnh: "${p.slice(0, 60)}"…` });
+            }
+            if (name === "create_document") {
+              const k = (input as { kind?: string })?.kind || "pptx";
+              send("status", { status: `Đang tổng hợp dữ liệu để tạo file ${k.toUpperCase()}…` });
+            }
+            return executeTool(name, input, {
               conversationId: conv.id,
               projectId: conv.projectId ?? undefined,
               userId: user.id,
-            }),
+            });
+          },
         });
         const generatedImageParts: Array<{
           type: "image";
