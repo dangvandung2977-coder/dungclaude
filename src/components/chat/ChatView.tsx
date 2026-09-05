@@ -20,7 +20,7 @@ import { MessageItem } from "./MessageItem";
 import { useToast, ConfirmModal } from "@/components/ui/primitives";
 import type { AIModel, Message, ReasoningEffort } from "@/types";
 import { useSession } from "@/hooks/useSession";
-import { cn } from "@/lib/utils";
+import { cn, copyText } from "@/lib/utils";
 import { getDefaultReasoningEffort } from "@/lib/ai/reasoning";
 import { isPromptCreationRequest, extractGeneratedPrompt, insertTextToComposer } from "@/lib/prompt-intent";
 import { isImageGenerationRequest } from "@/lib/ai/image-intent";
@@ -463,6 +463,19 @@ export function ChatView({
   useEffect(() => { activeConvIdRef.current = activeConvId; }, [activeConvId]);
   const isPromptRequestRef = useRef(false);
 
+  const handleAutoCopyPrompt = useCallback((content: string) => {
+    const hasPromptBlock = /(?:^|\n)[ \t]*`{3,}[^\n\r]*\b(?:prompt|pormpt|promt)(?:\.md|\.txt|\b)/i.test(content);
+    if (isPromptRequestRef.current || hasPromptBlock) {
+      const generatedPrompt = extractGeneratedPrompt(content);
+      if (generatedPrompt && generatedPrompt.trim().length > 0) {
+        insertTextToComposer(generatedPrompt, { mode: "replace", focus: true });
+        copyText(generatedPrompt).catch(() => {});
+        toast("✨ Đã tự động sao chép prompt vào ô chat!", "success");
+      }
+      isPromptRequestRef.current = false;
+    }
+  }, [toast]);
+
   // Poll VPS status to recover background generation after a local network drop
   const [isStreamingLive, setIsStreamingLive] = useState(false);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -576,14 +589,7 @@ export function ChatView({
 
             toast("Đã kết nối lại · Đã nhận câu trả lời hoàn chỉnh từ VPS!", "success");
 
-            if (isPromptRequestRef.current) {
-              const generatedPrompt = extractGeneratedPrompt(finalMsg.content || data.text || "");
-              if (generatedPrompt) {
-                insertTextToComposer(generatedPrompt, { onlyIfEmpty: true });
-                toast("✨ Đã tự động đưa prompt vào ô nhập!", "success");
-              }
-              isPromptRequestRef.current = false;
-            }
+            handleAutoCopyPrompt(finalMsg.content || data.text || "");
           } else if (data.status === "error") {
             if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
             pollIntervalRef.current = null;
@@ -790,14 +796,7 @@ export function ChatView({
                 isRecoveringRef.current = false;
                 toast("Đã nhận câu trả lời hoàn chỉnh từ VPS!", "success");
 
-                if (isPromptRequestRef.current) {
-                  const generatedPrompt = extractGeneratedPrompt(finalContent);
-                  if (generatedPrompt) {
-                    insertTextToComposer(generatedPrompt, { onlyIfEmpty: true });
-                    toast("✨ Đã tự động đưa prompt vào ô nhập!", "success");
-                  }
-                  isPromptRequestRef.current = false;
-                }
+                handleAutoCopyPrompt(finalContent);
               } else if (type === "error") {
                 setMessages((s) =>
                   s.map((m) =>
@@ -1191,14 +1190,7 @@ export function ChatView({
               );
               currentAsstId = finalId;
 
-              if (isPromptRequestRef.current) {
-                const generatedPrompt = extractGeneratedPrompt(finalContent);
-                if (generatedPrompt) {
-                  insertTextToComposer(generatedPrompt, { onlyIfEmpty: true });
-                  toast("✨ Đã tự động đưa prompt vào ô nhập!", "success");
-                }
-                isPromptRequestRef.current = false;
-              }
+              handleAutoCopyPrompt(finalContent);
             } else if (type === "cancelled") {
               if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
               setStatus("");

@@ -143,27 +143,30 @@ export function Composer({
       const detail = custom.detail;
       if (!detail || typeof detail.text !== "string") return;
 
+      const targetText = detail.text;
       setText((prev) => {
         if (detail.onlyIfEmpty && prev.trim().length > 0) {
           // Do not overwrite user's in-progress typing
           return prev;
         }
         if (detail.mode === "append" && prev.trim().length > 0) {
-          return `${prev}\n\n${detail.text}`;
+          return `${prev}\n\n${targetText}`;
         }
-        return detail.text;
+        return targetText;
       });
 
-      if (detail.focus !== false) {
-        requestAnimationFrame(() => {
-          if (taRef.current) {
+      requestAnimationFrame(() => {
+        if (taRef.current) {
+          if (detail.focus !== false) {
             taRef.current.focus();
-            const len = taRef.current.value.length;
-            taRef.current.setSelectionRange(len, len);
-            taRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
           }
-        });
-      }
+          const len = targetText.length;
+          taRef.current.setSelectionRange(len, len);
+          taRef.current.style.height = "auto";
+          taRef.current.style.height = `${Math.min(taRef.current.scrollHeight, variant === "center" ? 220 : 160)}px`;
+          taRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+      });
     };
 
     window.addEventListener("composer:set-text", handleSetText);

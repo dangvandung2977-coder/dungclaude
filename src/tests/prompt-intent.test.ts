@@ -12,6 +12,8 @@ describe("Prompt Intent Detector", () => {
     expect(isPromptCreationRequest("viết prompt cải thiện menu chính game câu cá")).toBe(true);
     expect(isPromptCreationRequest("t bảo prompt thì đưa vào trong cái ô jj mà")).toBe(true);
     expect(isPromptCreationRequest("cho cái prompt code web")).toBe(true);
+    expect(isPromptCreationRequest("Cho tao pormpt vẽ con mèo")).toBe(true);
+    expect(isPromptCreationRequest("cái prompt jj thì phân chia lại đi")).toBe(true);
   });
 
   it("detects English requests to write/create prompts", () => {

@@ -31,12 +31,12 @@ export function isPromptCreationRequest(message: string): boolean {
 
   // Action verbs and patterns that specifically indicate creating or crafting a prompt
   const actionPatterns = [
-    /\b(viet|tao|soan|sinh|lam|generate|write|craft|create|make|build|cho|xin|can)\b.*?\b(prompt|prompts|cau lenh|câu lệnh)\b/i,
-    /\b(prompt|cau lenh|câu lệnh)\b.*?\b(de |cho |ve |ve tranh|tao anh|chup anh|video|viet |code|game|web|app|cai thien|nang cap|midjourney|dall-e|sd|stablediffusion|flux|gemini|claude|chatgpt)/i,
-    /\b(cho toi|cho minh|cho mình|cho tao|give me|suggest|goi y|gợi ý|viet ho|làm hộ)\b.*?\b(prompt|câu lệnh|cau lenh)\b/i,
-    /\b(midjourney|flux|dall-e|stable diffusion|chatgpt|claude)\s+(prompt|câu lệnh|cau lenh)\b/i,
-    /\b(prompt)\s*:\s*[^\n\r]+/i,
-    /\b(t bảo prompt|prompt thi|prompt thì|dua prompt|đưa prompt|de prompt|để prompt|prompt la file|prompt là file|file md|code block|van ko cho|vẫn ko cho|khong vao code block|không vào code block|cho vao code block|cho vào code block|khong dua vao|không đưa vào)\b/i,
+    /\b(viet|tao|soan|sinh|lam|generate|write|craft|create|make|build|cho|xin|can|chuan bi)\b.*?\b(prompt|prompts|pormpt|promt|promp|cau lenh|câu lệnh)\b/i,
+    /\b(prompt|pormpt|promt|promp|cau lenh|câu lệnh)\b.*?\b(de |cho |ve |ve tranh|tao anh|chup anh|video|viet |code|game|web|app|cai thien|nang cap|midjourney|dall-e|sd|stablediffusion|flux|gemini|claude|chatgpt)/i,
+    /\b(cho toi|cho minh|cho mình|cho tao|give me|suggest|goi y|gợi ý|viet ho|làm hộ)\b.*?\b(prompt|pormpt|promt|promp|câu lệnh|cau lenh)\b/i,
+    /\b(midjourney|flux|dall-e|stable diffusion|chatgpt|claude)\s+(prompt|pormpt|promt|promp|câu lệnh|cau lenh)\b/i,
+    /\b(prompt|pormpt|promt|promp)\s*:\s*[^\n\r]+/i,
+    /\b(t bảo prompt|prompt thi|prompt thì|dua prompt|đưa prompt|de prompt|để prompt|prompt la file|prompt là file|file md|code block|van ko cho|vẫn ko cho|khong vao code block|không vào code block|cho vao code block|cho vào code block|khong dua vao|không đưa vào|phan chia|phân chia|coppy|copy)\b/i,
   ];
 
   return actionPatterns.some((pattern) => pattern.test(plain) || pattern.test(lower));
@@ -51,7 +51,7 @@ export function extractGeneratedPrompt(responseContent: string): string | null {
 
   // 1. Explicit prompt code block with 3 or more backticks (e.g. ````markdown:prompt.md or ```markdown:prompt.md or ```prompt)
   // Handles nested code fences gracefully by matching corresponding closing fences or the true final closing fence.
-  const promptBlockRegex = /(?:^|\n)[ \t]*(`{3,})(?:((?:prompt|systemprompt)\b[^\n\r]*)|(?:markdown|md|text|txt)?:([^\n\r]*prompt[^\n\r]*))\r?\n([\s\S]*)/i;
+  const promptBlockRegex = /(?:^|\n)[ \t]*(`{3,})(?:((?:prompt|pormpt|promt|promp|systemprompt)\b[^\n\r]*)|(?:markdown|md|text|txt)?:([^\n\r]*(?:prompt|pormpt|promt)[^\n\r]*))\r?\n([\s\S]*)/i;
   const promptBlockMatch = promptBlockRegex.exec(content);
   if (promptBlockMatch) {
     const fenceTicks = promptBlockMatch[1];
@@ -126,7 +126,7 @@ export function extractGeneratedPrompt(responseContent: string): string | null {
 
   // If any codeblock has filename or meta containing "prompt", e.g. prompt.md
   const promptFileBlock = codeBlocks.find(
-    (b) => b.meta.includes("prompt") || b.lang === "prompt" || b.lang === "systemprompt"
+    (b) => b.meta.includes("prompt") || b.meta.includes("pormpt") || b.lang === "prompt" || b.lang === "pormpt" || b.lang === "systemprompt"
   );
   if (promptFileBlock && promptFileBlock.code) {
     return promptFileBlock.code;
