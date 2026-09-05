@@ -321,6 +321,75 @@ export async function POST(req: Request): Promise<Response> {
           }
         }
 
+        // ── Direct Image Generation branch: user requested an image/artwork ──
+        if (imgIntent.isImage) {
+          send("image_generating", { prompt: imgIntent.prompt });
+          send("status", { status: `Đang kết nối endpoint AI để tạo hình ảnh: "${imgIntent.prompt}"…` });
+
+          try {
+            const imageResult = await generateImage({
+              prompt: imgIntent.prompt,
+              aspectRatio: imgIntent.aspectRatio || "1:1",
+              style: imgIntent.style,
+              userId: user.id,
+              conversationId: conv.id,
+              projectId: conv.projectId ?? undefined,
+            });
+
+            const finalImgUrl = imageResult.url || (imageResult.id ? `/api/files/${imageResult.id}` : "");
+            const validFileId = imageResult.fileId || (imageResult.id && !imageResult.id.startsWith("img_") ? imageResult.id : undefined);
+
+            send("image_generated", {
+              url: finalImgUrl,
+              fileId: validFileId,
+              fileName: imageResult.fileName,
+              prompt: imageResult.prompt,
+              aspectRatio: imageResult.aspectRatio,
+              model: imageResult.model,
+            });
+
+            const replyText = `Tôi đã tạo hình ảnh theo yêu cầu cho bạn: "${imageResult.prompt}".`;
+            send("token", { delta: replyText });
+
+            const assistantMsg = await createMessage({
+              conversationId: conv.id,
+              role: "assistant",
+              content: replyText,
+              parts: [
+                { type: "text", text: replyText },
+                {
+                  type: "image",
+                  url: finalImgUrl,
+                  fileId: validFileId,
+                  fileName: imageResult.fileName,
+                  mimeType: "image/png",
+                },
+              ],
+              modelId: imageResult.model || "image_gen",
+            });
+            assistantMsgSaved = true;
+
+            send("done", {
+              messageId: assistantMsg.id,
+              text: replyText,
+              parts: [
+                { type: "text", text: replyText },
+                {
+                  type: "image",
+                  url: finalImgUrl,
+                  fileId: validFileId,
+                  fileName: imageResult.fileName,
+                  mimeType: "image/png",
+                },
+              ],
+            });
+            controller.close();
+            return;
+          } catch (imgErr) {
+            console.warn("[ImageGen] Direct image generation error, falling back to gateway:", imgErr);
+          }
+        }
+
         const allModels = [...availableModels, ...(await getCustomModelsAsAIModels().catch(() => []))];
         const modelMeta = allModels.find((m) => m.id === optimized.routing.modelId);
         const supportsStreaming = modelMeta?.capabilities

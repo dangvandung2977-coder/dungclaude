@@ -211,6 +211,50 @@ export function detectImageFormat(buf: Buffer): { mimeType: string; ext: string 
 }
 
 /**
+ * Automatically resolves the active image generation model:
+ * 1. Explicit modelId if provided
+ * 2. Admin routed model for "image_gen"
+ * 3. Any enabled Custom Endpoint model with "image_gen" capability
+ * 4. Provider models (OpenAI DALL-E, OpenRouter Flux)
+ */
+export async function resolveImageModel(preferredModelId?: string): Promise<string> {
+  if (preferredModelId && preferredModelId !== "auto") {
+    return preferredModelId;
+  }
+  const routed = await getRoute("image_gen").catch(() => null);
+  if (routed) {
+    const ref = parseModelRef(routed);
+    if (ref.provider === "custom" && ref.endpointId) {
+      const cred = await getEndpointCredentials(ref.endpointId).catch(() => null);
+      if (cred && cred.enabled) return routed;
+    } else {
+      const cfg = await getProviderConfig(ref.provider).catch(() => null);
+      if (cfg && cfg.enabled && cfg.hasKey) return routed;
+    }
+  }
+
+  // Fallback to any enabled custom model with image_gen capability
+  const customs = await getAvailableCustomModels().catch(() => []);
+  const customImg = customs.find(
+    (m) =>
+      (m.capabilities?.includes("image_gen") ||
+        /flux|dall|sdxl|diffusion|imagen|midjourney|image/i.test(m.id)) &&
+      m.enabled !== false
+  );
+  if (customImg) {
+    return customImg.id;
+  }
+
+  // Fallback to OpenAI or OpenRouter if keys configured
+  const openAiCfg = await getProviderConfig("openai").catch(() => null);
+  if (openAiCfg?.enabled && openAiCfg?.hasKey) {
+    return "openai:dall-e-3";
+  }
+
+  return routed || "openai:dall-e-3";
+}
+
+/**
  * Core image generation function.
  * Dispatches to Admin-configured endpoint (DALL-E 3, OpenRouter, Custom Endpoint, or Fallback).
  */
@@ -232,10 +276,7 @@ export async function generateImage(params: ImageGenParams): Promise<GeneratedIm
   }
 
   // Resolve model to use
-  let modelToUse = params.modelId;
-  if (!modelToUse || modelToUse === "auto") {
-    modelToUse = await getRoute("image_gen").catch(() => "openai:dall-e-3");
-  }
+  const modelToUse = await resolveImageModel(params.modelId);
 
   let imageBuffer: Buffer | null = null;
   let mimeType = "image/png";

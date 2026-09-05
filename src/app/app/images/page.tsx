@@ -322,31 +322,6 @@ function ImageStudioContent() {
                   )}
                 </div>
 
-                {/* Immediate Generate Button right under Prompt */}
-                <div className="mt-2.5 flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleGenerate()}
-                    disabled={isGenerating || !prompt.trim()}
-                    className={cn(
-                      "flex-1 py-2.5 px-4 rounded-xl font-semibold text-xs sm:text-sm text-white flex items-center justify-center gap-2 transition-all shadow-md active:scale-[0.99] cursor-pointer",
-                      isGenerating || !prompt.trim()
-                        ? "bg-[#D97757]/40 text-white/50 cursor-not-allowed"
-                        : "bg-[#D97757] hover:bg-[#E2886A] shadow-[0_0_20px_rgba(217,119,87,0.35)]"
-                    )}
-                  >
-                    {isGenerating ? (
-                      <>
-                        <RefreshCw size={15} className="animate-spin text-white" />
-                        <span>Đang tạo ảnh nghệ thuật...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles size={15} />
-                        <span>Tạo ảnh ngay (Ctrl + Enter)</span>
-                      </>
-                    )}
-                  </button>
                 </div>
               </div>
 
@@ -481,14 +456,14 @@ function ImageStudioContent() {
                 </div>
               </div>
 
-              {/* Generate Button Sticky at bottom */}
-              <div className="sticky bottom-0 z-10 pt-3 pb-1 bg-gradient-to-t from-[#161514] via-[#161514]/95 to-transparent">
+              {/* Primary Generate Action Button */}
+              <div className="pt-2">
                 <button
                   type="button"
                   onClick={() => handleGenerate()}
                   disabled={isGenerating || !prompt.trim()}
                   className={cn(
-                    "w-full py-3 px-4 rounded-xl font-semibold text-sm text-white flex items-center justify-center gap-2 transition-all shadow-xl active:scale-[0.99] cursor-pointer border border-[#D97757]/30",
+                    "w-full py-3.5 px-4 rounded-xl font-semibold text-sm text-white flex items-center justify-center gap-2 transition-all shadow-xl active:scale-[0.99] cursor-pointer border border-[#D97757]/30",
                     isGenerating || !prompt.trim()
                       ? "bg-[#D97757]/40 text-white/50 cursor-not-allowed"
                       : "bg-[#D97757] hover:bg-[#E2886A] shadow-[0_0_25px_rgba(217,119,87,0.45)] hover:shadow-[0_0_30px_rgba(217,119,87,0.6)]"
@@ -502,7 +477,7 @@ function ImageStudioContent() {
                   ) : (
                     <>
                       <Sparkles size={16} />
-                      <span>Tạo ảnh ngay</span>
+                      <span>Tạo ảnh ngay (Ctrl + Enter)</span>
                     </>
                   )}
                 </button>

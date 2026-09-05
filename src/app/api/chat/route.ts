@@ -168,6 +168,50 @@ CRITICAL:
       : "";
 
     const imgIntent = isImageGenerationRequest(body.content);
+    if (imgIntent.isImage) {
+      try {
+        const imageResult = await generateImage({
+          prompt: imgIntent.prompt,
+          aspectRatio: imgIntent.aspectRatio || "1:1",
+          style: imgIntent.style,
+          userId: user.id,
+          conversationId: conv.id,
+          projectId: conv.projectId ?? undefined,
+        });
+
+        const finalImgUrl = imageResult.url || (imageResult.id ? `/api/files/${imageResult.id}` : "");
+        const validFileId = imageResult.fileId || (imageResult.id && !imageResult.id.startsWith("img_") ? imageResult.id : undefined);
+        const replyText = `Tôi đã tạo hình ảnh theo yêu cầu cho bạn: "${imageResult.prompt}".`;
+
+        const assistantMsg = await createMessage({
+          conversationId: conv.id,
+          role: "assistant",
+          content: replyText,
+          parts: [
+            { type: "text", text: replyText },
+            {
+              type: "image",
+              url: finalImgUrl,
+              fileId: validFileId,
+              fileName: imageResult.fileName,
+              mimeType: "image/png",
+            },
+          ],
+          modelId: imageResult.model || "image_gen",
+        });
+
+        return ok({
+          messageId: assistantMsg.id,
+          text: replyText,
+          parts: assistantMsg.parts,
+          model: imageResult.model || "image_gen",
+          costUsd: 0,
+        });
+      } catch (imgErr) {
+        console.warn("[ImageGen] Direct image generation failed, falling back to chat gateway:", imgErr);
+      }
+    }
+
     const imageGenGuidance = imgIntent.isImage
       ? `\n\n[CRITICAL IMAGE GENERATION INSTRUCTION]:
 The user explicitly requests generating or drawing an image for: "${imgIntent.prompt}".

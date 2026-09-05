@@ -65,4 +65,22 @@ describe("Image Generation Intent Recognition in Chat", () => {
     const res5 = isImageGenerationRequest("hướng dẫn tạo ảnh bằng AI");
     expect(res5.isImage).toBe(false);
   });
+
+  it("extracts aspect ratios and artistic styles accurately from natural prompt", () => {
+    const res1 = isImageGenerationRequest("vẽ cho tao con mèo tỷ lệ 16:9 phong cách anime");
+    expect(res1.isImage).toBe(true);
+    expect(res1.aspectRatio).toBe("16:9");
+    expect(res1.style).toBe("anime");
+    expect(res1.prompt.toLowerCase()).toContain("con mèo");
+
+    const res2 = isImageGenerationRequest("tạo ảnh chân dung chiến binh tương lai 3:4 phong cách cyberpunk");
+    expect(res2.isImage).toBe(true);
+    expect(res2.aspectRatio).toBe("3:4");
+    expect(res2.style).toBe("cyberpunk");
+
+    const res3 = isImageGenerationRequest("vẽ tranh phong cảnh hoàng hôn khổ ngang màu nước");
+    expect(res3.isImage).toBe(true);
+    expect(res3.aspectRatio).toBe("16:9");
+    expect(res3.style).toBe("watercolor");
+  });
 });
