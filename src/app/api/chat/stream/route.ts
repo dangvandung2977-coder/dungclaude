@@ -369,17 +369,17 @@ export async function POST(req: Request): Promise<Response> {
         });
 
         const promptEnforcement = isPromptCreationRequest(body.content)
-          ? `\n\n[MANDATORY FORMATTING REQUIREMENT]:
-The user requested a prompt. You MUST output the entire prompt enclosed inside a single file code block using FOUR BACKTICKS (\`\`\`\`) labeled:
+          ? `\n\n[MANDATORY PROMPT FORMATTING — CHATGPT STYLE SEPARATION]:
+The user requested a prompt. Follow the standard ChatGPT layout with CLEAR SEPARATION:
+1. OUTSIDE BEFORE THE BOX: Brief conversational intro (e.g. "Dưới đây là prompt bạn có thể sử dụng:").
+2. INSIDE THE BOX: Enclose ONLY the actual ready-to-run prompt text inside a single code block using FOUR BACKTICKS (\`\`\`\`) labeled:
 \`\`\`\`markdown:prompt.md
-<complete prompt content here>
+<ONLY the core prompt instructions/role/task to be copied here>
 \`\`\`\`
-CRITICAL:
-1. You MUST use FOUR backticks (\`\`\`\`) for the outer container: \`\`\`\`markdown:prompt.md and close with \`\`\`\`.
-2. NEVER use three backticks (\`\`\`) for the outer prompt block, because prompts often describe code or code files, and using 3 backticks will prematurely close and fragment the prompt.
-3. DO NOT output fragmented or empty code blocks (like \`\`\`css:style.css \`\`\`). Keep all instructions inside the single \`\`\`\`markdown:prompt.md\`\`\`\` block.
-4. DO NOT use plain text headings outside code blocks.
-5. The prompt MUST be 100% inside this single block so the user can 1-click copy and insert it into their chat composer!`
+   - Inside this box must be ONLY the prompt itself.
+   - DO NOT put greetings, conversational chatter, or explanations inside this box!
+   - You MUST use FOUR backticks (\`\`\`\`) for the outer container and close with \`\`\`\`.
+3. OUTSIDE AFTER THE BOX: Provide any usage tips, explanations, or parameter customization instructions in normal Markdown text OUTSIDE and below the code block.`
           : "";
 
         const imageGenGuidance = imgIntent.isImage
