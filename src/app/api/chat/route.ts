@@ -218,7 +218,7 @@ The user explicitly requests generating or drawing an image for: "${imgIntent.pr
 You MUST call the "generate_image" tool with prompt: "${imgIntent.prompt}" to create the artwork.`
       : "";
 
-    const enabledTools = TOOL_DEFS.filter((t) => ["calculator", "file_search", "generate_image"].includes(t.name));
+    const enabledTools = TOOL_DEFS.filter((t) => ["calculator", "file_search", "generate_image", "create_document"].includes(t.name));
 
     const result = await runGateway({
       modelId: optimized.routing.modelId,
@@ -254,6 +254,14 @@ You MUST call the "generate_image" tool with prompt: "${imgIntent.prompt}" to cr
       mimeType: string;
     }> = [];
 
+    const generatedFileParts: Array<{
+      type: "file";
+      fileName: string;
+      fileId: string;
+      url: string;
+      mimeType: string;
+    }> = [];
+
     for (const tc of result.toolCalls) {
       toolEvents.push(tc);
       if (tc.name === "generate_image" && tc.output) {
@@ -267,6 +275,20 @@ You MUST call the "generate_image" tool with prompt: "${imgIntent.prompt}" to cr
               fileId: imgData.fileId || undefined,
               fileName: imgData.fileName || "ai-generated-image.png",
               mimeType: "image/png",
+            });
+          }
+        } catch {}
+      }
+      if (tc.name === "create_document" && tc.output) {
+        try {
+          const artData = JSON.parse(tc.output);
+          if (artData.success && artData.fileId) {
+            generatedFileParts.push({
+              type: "file",
+              fileName: artData.fileName,
+              fileId: artData.fileId,
+              url: artData.url,
+              mimeType: artData.mimeType,
             });
           }
         } catch {}
@@ -327,6 +349,7 @@ You MUST call the "generate_image" tool with prompt: "${imgIntent.prompt}" to cr
       parts: [
         { type: "text", text: full },
         ...generatedImageParts,
+        ...generatedFileParts,
         ...toolEvents.map((t) => ({
           type: "tool_call" as const,
           toolName: t.name,

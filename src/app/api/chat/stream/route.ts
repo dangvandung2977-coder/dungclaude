@@ -219,7 +219,7 @@ export async function POST(req: Request): Promise<Response> {
   if (prj?.instructions) projectInstructions = `[Project instructions — always follow]:\n${prj.instructions}`;
 
   const imgIntent = isImageGenerationRequest(body.content);
-  let enabledToolNames: string[] = ["calculator", "file_search", "generate_image"];
+  let enabledToolNames: string[] = ["calculator", "file_search", "generate_image", "create_document"];
   if (Array.isArray(body.tools)) {
     enabledToolNames = body.tools;
   } else if (body.tools && typeof body.tools === "object") {
@@ -229,6 +229,7 @@ export async function POST(req: Request): Promise<Response> {
     if (tObj.fileSearch !== false) enabledToolNames.push("file_search");
     if (tObj.webSearch) enabledToolNames.push("web_search");
     if (tObj.generateImage !== false) enabledToolNames.push("generate_image");
+    if (tObj.createDocument !== false) enabledToolNames.push("create_document");
   }
   if (imgIntent.isImage && !enabledToolNames.includes("generate_image")) {
     enabledToolNames.push("generate_image");
@@ -282,45 +283,6 @@ export async function POST(req: Request): Promise<Response> {
       let assistantMsgSaved = false;
       const toolEvents: Array<{ id: string; name: string; input: unknown; output: string }> = [];
       try {
-        // ── Artifact branch: user asked for a real file (docx/pptx/xlsx/pdf/md/csv) ──
-        // Runs instead of the normal chat response. Failure → falls back to normal chat.
-        const artifactIntent = detectArtifactIntent(body.content);
-        if (artifactIntent.kind) {
-          try {
-            send("token", { delta: `Đang tổng hợp dữ liệu từ cuộc trò chuyện để tạo file ${artifactIntent.kind.toUpperCase()}…\n\n` });
-            // Use currently active routing model or fast standard Gemini/Claude, avoiding dead custom endpoints
-            const artifactModel = optimized.routing.modelId || pickSummarizationModel(availableModels, "", "gemini:gemini-2.5-flash");
-            const artifact = await generateArtifact(
-              { kind: artifactIntent.kind, fileName: artifactIntent.fileName, instruction: artifactIntent.instruction },
-              body.content,
-              { userId: user.id, conversationId: conv.id },
-              artifactModel,
-              {
-                history: optimized.messages,
-              }
-            );
-            // Persist assistant message with the artifact as a file part
-            const summary = `Tôi đã tạo thành công file **${artifact.fileName}** (${formatBytes(artifact.sizeBytes)}) dựa trên toàn bộ dữ liệu trong cuộc trò chuyện của chúng ta:`;
-            const assistantMsg = await createMessage({
-              conversationId: conv.id, role: "assistant", content: summary,
-              parts: [{ type: "file", fileName: artifact.fileName, fileId: artifact.id, mimeType: artifact.mimeType }],
-              modelId: artifactModel,
-            });
-            assistantMsgSaved = true;
-            send("artifact", {
-              id: artifact.id, fileName: artifact.fileName, kind: artifact.kind,
-              mimeType: artifact.mimeType, sizeBytes: artifact.sizeBytes,
-              url: `/api/files/${artifact.id}`,
-            });
-            send("done", { messageId: assistantMsg.id });
-            controller.close();
-            return;
-          } catch (e) {
-            // Artifact pipeline failed → continue with normal chat answer
-            if (process.env.NODE_ENV !== "production") console.warn("[Artifact] failed, falling back to chat:", e);
-          }
-        }
-
         // ── Direct Image Generation branch: user requested an image/artwork ──
         if (imgIntent.isImage) {
           send("image_generating", { prompt: imgIntent.prompt });
@@ -462,6 +424,14 @@ You MUST call the "generate_image" tool with prompt: "${imgIntent.prompt}" to cr
           mimeType: string;
         }> = [];
 
+        const generatedFileParts: Array<{
+          type: "file";
+          fileName: string;
+          fileId: string;
+          url: string;
+          mimeType: string;
+        }> = [];
+
         for (const tc of result.toolCalls) {
           toolEvents.push(tc);
           send("tool_result", { id: tc.id, name: tc.name, status: "success" });
@@ -484,6 +454,28 @@ You MUST call the "generate_image" tool with prompt: "${imgIntent.prompt}" to cr
                   prompt: imgData.prompt,
                   aspectRatio: imgData.aspectRatio,
                   model: imgData.model,
+                });
+              }
+            } catch {}
+          }
+          if (tc.name === "create_document" && tc.output) {
+            try {
+              const artData = JSON.parse(tc.output);
+              if (artData.success && artData.fileId) {
+                generatedFileParts.push({
+                  type: "file",
+                  fileName: artData.fileName,
+                  fileId: artData.fileId,
+                  url: artData.url,
+                  mimeType: artData.mimeType,
+                });
+                send("artifact", {
+                  id: artData.fileId,
+                  fileName: artData.fileName,
+                  kind: artData.kind,
+                  mimeType: artData.mimeType,
+                  sizeBytes: artData.sizeBytes,
+                  url: artData.url,
                 });
               }
             } catch {}
@@ -544,6 +536,7 @@ You MUST call the "generate_image" tool with prompt: "${imgIntent.prompt}" to cr
           parts: [
             { type: "text", text: full },
             ...generatedImageParts,
+            ...generatedFileParts,
             ...toolEvents.map((t) => ({ type: "tool_call" as const, toolName: t.name, toolCallId: t.id, toolInput: t.input, toolOutput: t.output, status: "success" as const })),
           ],
           modelId: respondingModelId,

@@ -29,6 +29,29 @@ export const TOOL_DEFS: GatewayTool[] = [
       required: ["prompt"],
     },
   },
+  {
+    name: "create_document",
+    description: "Tạo và xuất file tài liệu thực tế (docx, pptx, xlsx, pdf, zip) để người dùng tải về máy. QUAN TRỌNG: Chỉ gọi công cụ này khi người dùng THỰC SỰ muốn tạo/xuất/tải về tệp file tài liệu cụ thể. Tuyệt đối KHÔNG gọi công cụ này khi người dùng chỉ đang hỏi han, xin dàn ý, thảo luận cấu trúc hoặc lên ý tưởng nội dung.",
+    parameters: {
+      type: "object",
+      properties: {
+        kind: {
+          type: "string",
+          enum: ["pptx", "docx", "xlsx", "pdf", "zip"],
+          description: "Loại file: 'pptx' (PowerPoint slide), 'docx' (Word tài liệu), 'xlsx' (Excel bảng tính), 'pdf', 'zip'",
+        },
+        instruction: {
+          type: "string",
+          description: "Mô tả chi tiết nội dung, chủ đề, cấu trúc các phần/slide cần có trong file",
+        },
+        fileName: {
+          type: "string",
+          description: "Tên file mong muốn (ví dụ: 'thuyet-trinh.pptx', 'bao-cao.docx')",
+        },
+      },
+      required: ["kind", "instruction"],
+    },
+  },
 ];
 
 export function isToolEnabled(name: string, enabled: string[]): boolean {
@@ -116,6 +139,33 @@ export async function executeTool(
       aspectRatio: res.aspectRatio,
       dimensions: `${res.width}x${res.height}`,
       model: res.model,
+    });
+  }
+  if (name === "create_document") {
+    const { generateArtifact } = await import("@/lib/artifacts/pipeline");
+    type Kind = "pptx" | "docx" | "xlsx" | "pdf" | "zip";
+    const validKinds: Kind[] = ["pptx", "docx", "xlsx", "pdf", "zip"];
+    const rawKind = String(args.kind || "pptx") as Kind;
+    const kind = validKinds.includes(rawKind) ? rawKind : "pptx";
+    const instruction = String(args.instruction || args.topic || "");
+    const fileName = args.fileName ? String(args.fileName) : null;
+    const res = await generateArtifact(
+      { kind, fileName, instruction },
+      instruction,
+      {
+        userId: ctx?.userId || "anonymous",
+        conversationId: ctx?.conversationId || "conv_temp",
+      },
+      "gemini:gemini-2.5-flash"
+    );
+    return JSON.stringify({
+      success: true,
+      fileId: res.id,
+      fileName: res.fileName,
+      kind: res.kind,
+      mimeType: res.mimeType,
+      sizeBytes: res.sizeBytes,
+      url: `/api/files/${res.id}`,
     });
   }
   throw new Error(`Unknown tool: ${name}`);
