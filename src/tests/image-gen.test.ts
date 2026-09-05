@@ -30,6 +30,41 @@ vi.mock("@/lib/db/repos", () => ({
   }),
 }));
 
+vi.mock("@/lib/ai/custom-endpoints", () => ({
+  getEndpointCredentials: vi.fn().mockResolvedValue({
+    baseUrl: "https://mock-image-server.com/v1",
+    key: "mock-key",
+    enabled: true,
+    name: "Mock Image Server",
+  }),
+  getAvailableCustomModels: vi.fn().mockResolvedValue([
+    {
+      id: "custom:mock_ep:mock-image-model",
+      endpointId: "mock_ep",
+      apiName: "mock-image-model",
+      displayName: "Mock Image Model",
+      capabilities: ["image_gen"],
+      enabled: true,
+    },
+  ]),
+}));
+
+const mockPngB64 = Buffer.from([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52
+]).toString("base64");
+
+global.fetch = vi.fn().mockImplementation(() =>
+  Promise.resolve({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      data: [{ b64_json: mockPngB64 }],
+    }),
+    text: async () => "",
+    arrayBuffer: async () => Buffer.from(mockPngB64, "base64"),
+  } as unknown as Response)
+);
+
 describe("Image Generation System", () => {
   describe("Configuration & Presets", () => {
     it("has image_gen defined in FUNCTION_LABELS for Admin routing", () => {
@@ -75,8 +110,8 @@ describe("Image Generation System", () => {
       const pngBuf = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
       expect(detectImageFormat(pngBuf)).toEqual({ mimeType: "image/png", ext: "png" });
 
-      const svgBuf = Buffer.from("<svg xmlns='http://www.w3.org/2000/svg'></svg>");
-      expect(detectImageFormat(svgBuf)).toEqual({ mimeType: "image/svg+xml", ext: "svg" });
+      const webpBuf = Buffer.from([0x52, 0x49, 0x46, 0x46, 0x00, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50]);
+      expect(detectImageFormat(webpBuf)).toEqual({ mimeType: "image/webp", ext: "webp" });
     });
   });
 

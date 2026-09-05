@@ -53,11 +53,18 @@ export const STYLE_PRESETS: Record<string, { label: string; promptSuffix: string
  * Returns available image generation models (including admin custom endpoints with image_gen capability)
  */
 export async function getAvailableImageModels(): Promise<{ models: AIModel[]; activeRoute: string }> {
-  const activeRoute = await getRoute("image_gen").catch(() => "openai:dall-e-3");
+  let activeRoute = await getRoute("image_gen").catch(() => "");
   const customs = await getAvailableCustomModels().catch(() => []);
   const imageCustoms = customs.filter(
     (m) => m.capabilities?.includes("image_gen") || /flux|dall|sdxl|diffusion|imagen|midjourney/i.test(m.id)
   );
+
+  if (!activeRoute && imageCustoms.length > 0) {
+    activeRoute = imageCustoms[0].id;
+  }
+  if (!activeRoute) {
+    activeRoute = "openai:dall-e-3";
+  }
 
   const defaultModels: AIModel[] = [
     {
@@ -103,79 +110,6 @@ export async function getAvailableImageModels(): Promise<{ models: AIModel[]; ac
 }
 
 /**
- * Generates an SVG fallback graphic with prompt typography and gradients
- */
-function createFallbackImageBuffer(prompt: string, width: number, height: number, style?: string): Buffer {
-  const sanitizedPrompt = prompt.replace(/[<>&"]/g, " ").slice(0, 120);
-  const words = sanitizedPrompt.split(/\s+/).filter(Boolean);
-  const line1 = words.slice(0, 6).join(" ");
-  const line2 = words.slice(6, 12).join(" ");
-  const line3 = words.slice(12, 18).join(" ");
-
-  const styleLabel = style ? (STYLE_PRESETS[style]?.label || style) : "DungClaude AI";
-
-  const svg = `
-<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-  <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#141312"/>
-      <stop offset="50%" stop-color="#241e1b"/>
-      <stop offset="100%" stop-color="#0d0c0c"/>
-    </linearGradient>
-    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#D97757"/>
-      <stop offset="50%" stop-color="#E2886A"/>
-      <stop offset="100%" stop-color="#F3A78D"/>
-    </linearGradient>
-    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#D97757" stop-opacity="0.3"/>
-      <stop offset="100%" stop-color="#D97757" stop-opacity="0"/>
-    </radialGradient>
-    <filter id="blur" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="40"/>
-    </filter>
-  </defs>
-
-  <!-- Background -->
-  <rect width="${width}" height="${height}" fill="url(#bg)"/>
-
-  <!-- Ambient Glow Spheres -->
-  <circle cx="${width * 0.3}" cy="${height * 0.4}" r="${Math.min(width, height) * 0.35}" fill="url(#glow)" filter="url(#blur)"/>
-  <circle cx="${width * 0.75}" cy="${height * 0.6}" r="${Math.min(width, height) * 0.3}" fill="url(#glow)" filter="url(#blur)"/>
-
-  <!-- Subtle Geometric Frame -->
-  <rect x="40" y="40" width="${width - 80}" height="${height - 80}" rx="24" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>
-
-  <!-- Center Decorative Icon / Symbol -->
-  <g transform="translate(${width / 2 - 32}, ${height / 2 - 120})">
-    <circle cx="32" cy="32" r="40" fill="rgba(217,119,87,0.12)" stroke="rgba(217,119,87,0.35)" stroke-width="1.5"/>
-    <path d="M32 12 L35 25 L48 25 L37 34 L41 47 L32 39 L23 47 L27 34 L16 25 L29 25 Z" fill="url(#accent)"/>
-  </g>
-
-  <!-- Style Tag -->
-  <g transform="translate(${width / 2}, ${height / 2 - 35})">
-    <rect x="-80" y="-14" width="160" height="28" rx="14" fill="rgba(217,119,87,0.15)" stroke="rgba(217,119,87,0.4)" stroke-width="1"/>
-    <text text-anchor="middle" y="5" fill="#E2886A" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="600" letter-spacing="0.5">${styleLabel}</text>
-  </g>
-
-  <!-- Prompt Text in Center -->
-  <text text-anchor="middle" x="${width / 2}" y="${height / 2 + 35}" fill="#ECEBE4" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="${Math.min(width, height) > 800 ? 24 : 18}" font-weight="600">
-    ${line1}
-  </text>
-  ${line2 ? `<text text-anchor="middle" x="${width / 2}" y="${height / 2 + 70}" fill="#ECEBE4" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="${Math.min(width, height) > 800 ? 24 : 18}" font-weight="600">${line2}</text>` : ""}
-  ${line3 ? `<text text-anchor="middle" x="${width / 2}" y="${height / 2 + 105}" fill="#A6A49B" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="${Math.min(width, height) > 800 ? 18 : 14}" font-weight="400">${line3}...</text>` : ""}
-
-  <!-- Footer Brand -->
-  <text text-anchor="middle" x="${width / 2}" y="${height - 70}" fill="#75736C" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="500" letter-spacing="1">
-    ✦ DUNGCLAUDE AI IMAGE STUDIO · ${width}×${height}
-  </text>
-</svg>
-`.trim();
-
-  return Buffer.from(svg, "utf8");
-}
-
-/**
  * Resolves standard OpenAI-compatible image dimensions.
  * Standard endpoints (DALL-E 3, Gemini Image proxies, Flux, Midjourney)
  * strictly require 1024x1024, 1024x1792 (portrait), or 1792x1024 (landscape).
@@ -202,10 +136,6 @@ export function detectImageFormat(buf: Buffer): { mimeType: string; ext: string 
   }
   if (buf.length >= 12 && buf.toString("ascii", 0, 4) === "RIFF" && buf.toString("ascii", 8, 12) === "WEBP") {
     return { mimeType: "image/webp", ext: "webp" };
-  }
-  const prefix = buf.toString("utf8", 0, Math.min(buf.length, 120)).trim();
-  if (prefix.startsWith("<svg") || prefix.startsWith("<?xml")) {
-    return { mimeType: "image/svg+xml", ext: "svg" };
   }
   return { mimeType: "image/png", ext: "png" };
 }
@@ -284,6 +214,8 @@ export async function generateImage(params: ImageGenParams): Promise<GeneratedIm
   const ref = parseModelRef(modelToUse);
   const apiSize = resolveApiImageSize(aspectRatio, width, height);
 
+  let lastError = "";
+
   // 1. Try Custom Endpoint if routed to a custom model
   if (ref.provider === "custom" && ref.endpointId) {
     try {
@@ -316,20 +248,38 @@ export async function generateImage(params: ImageGenParams): Promise<GeneratedIm
           });
         };
 
-        let resp = await callEndpoint(apiSize);
+        let resp: Response | null = null;
+        try {
+          resp = await callEndpoint(apiSize);
+        } catch (fetchErr) {
+          lastError = `Không thể kết nối đến ${url}: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`;
+        }
+
+        // If 502 / 503 / 504 from reverse proxy / cloudflare, retry once after short delay
+        if (resp && (resp.status === 502 || resp.status === 503 || resp.status === 504)) {
+          console.warn(`[ImageGen] Custom endpoint returned ${resp.status}, retrying once after 1.2s...`);
+          await new Promise((r) => setTimeout(r, 1200));
+          try {
+            resp = await callEndpoint(apiSize);
+          } catch {}
+        }
 
         // If rejected due to size (400), retry with 1024x1024
-        if (!resp.ok && resp.status === 400 && apiSize !== "1024x1024") {
+        if (resp && !resp.ok && resp.status === 400 && apiSize !== "1024x1024") {
           console.warn(`[ImageGen] Custom endpoint returned 400 for size ${apiSize}, retrying with 1024x1024`);
-          resp = await callEndpoint("1024x1024");
+          try {
+            resp = await callEndpoint("1024x1024");
+          } catch {}
         }
         // If still 400, retry without size parameter
-        if (!resp.ok && resp.status === 400) {
+        if (resp && !resp.ok && resp.status === 400) {
           console.warn(`[ImageGen] Custom endpoint returned 400, retrying without size parameter`);
-          resp = await callEndpoint(undefined);
+          try {
+            resp = await callEndpoint(undefined);
+          } catch {}
         }
 
-        if (resp.ok) {
+        if (resp && resp.ok) {
           const json = await resp.json();
           const item = json.data?.[0];
           if (item?.b64_json) {
@@ -344,12 +294,17 @@ export async function generateImage(params: ImageGenParams): Promise<GeneratedIm
             const b64 = json.output[0].replace(/^data:image\/\w+;base64,/, "");
             imageBuffer = Buffer.from(b64, "base64");
           }
-        } else {
-          console.warn(`[ImageGen] Custom endpoint error: ${resp.status} ${await resp.text().catch(() => "")}`);
+        } else if (resp) {
+          const errText = await resp.text().catch(() => "");
+          lastError = `Endpoint '${cred.name}' (${url}) báo lỗi ${resp.status}: ${errText.slice(0, 200)}`;
+          console.warn(`[ImageGen] Custom endpoint error: ${lastError}`);
         }
+      } else {
+        lastError = `Endpoint '${ref.endpointId}' không tồn tại hoặc đã bị tắt.`;
       }
     } catch (err) {
-      console.warn(`[ImageGen] Custom endpoint failed, continuing to fallback:`, err);
+      lastError = `Lỗi kết nối Custom endpoint: ${err instanceof Error ? err.message : String(err)}`;
+      console.warn(`[ImageGen] Custom endpoint exception:`, err);
     }
   }
 
@@ -357,12 +312,13 @@ export async function generateImage(params: ImageGenParams): Promise<GeneratedIm
   if (!imageBuffer && (ref.provider === "openai" || modelToUse.includes("dall-e"))) {
     try {
       const openAiCfg = await getProviderConfig("openai");
-      if (openAiCfg && openAiCfg.enabled && openAiCfg.hasKey) {
+      const key = openAiCfg?.keyHint || process.env.OPENAI_API_KEY;
+      if (key) {
         const resp = await fetch("https://api.openai.com/v1/images/generations", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${openAiCfg.keyHint || ""}`,
+            Authorization: `Bearer ${key}`,
           },
           body: JSON.stringify({
             model: "dall-e-3",
@@ -379,17 +335,63 @@ export async function generateImage(params: ImageGenParams): Promise<GeneratedIm
           const b64 = json.data?.[0]?.b64_json;
           if (b64) imageBuffer = Buffer.from(b64, "base64");
         } else {
-          console.warn(`[ImageGen] OpenAI DALL-E error ${resp.status}: ${await resp.text().catch(() => "")}`);
+          const errText = await resp.text().catch(() => "");
+          lastError = `OpenAI DALL-E báo lỗi ${resp.status}: ${errText.slice(0, 200)}`;
+          console.warn(`[ImageGen] OpenAI DALL-E error: ${lastError}`);
         }
+      } else {
+        lastError = "Chưa cấu hình API Key cho OpenAI trong Cài đặt Provider.";
       }
     } catch (err) {
+      lastError = `Lỗi gọi OpenAI DALL-E: ${err instanceof Error ? err.message : String(err)}`;
       console.warn(`[ImageGen] OpenAI DALL-E call error:`, err);
     }
   }
 
-  // 3. Fallback: High-Definition Vector Synthesis (Guarantees 100% success rate without 500 error)
+  // 3. Try OpenRouter if routed or model is openrouter
+  if (!imageBuffer && (ref.provider === "openrouter" || modelToUse.startsWith("openrouter:"))) {
+    try {
+      const openRouterCfg = await getProviderConfig("openrouter");
+      const key = openRouterCfg?.keyHint || process.env.OPENROUTER_API_KEY;
+      if (key) {
+        const resp = await fetch("https://openrouter.ai/api/v1/images/generations", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${key}`,
+          },
+          body: JSON.stringify({
+            model: ref.model || "black-forest-labs/flux-1-schnell",
+            prompt: fullPrompt,
+            response_format: "b64_json",
+            n: 1,
+          }),
+        });
+
+        if (resp.ok) {
+          const json = await resp.json();
+          const b64 = json.data?.[0]?.b64_json;
+          if (b64) imageBuffer = Buffer.from(b64, "base64");
+        } else {
+          const errText = await resp.text().catch(() => "");
+          lastError = `OpenRouter báo lỗi ${resp.status}: ${errText.slice(0, 200)}`;
+          console.warn(`[ImageGen] OpenRouter error: ${lastError}`);
+        }
+      } else {
+        lastError = "Chưa cấu hình API Key cho OpenRouter trong Cài đặt Provider.";
+      }
+    } catch (err) {
+      lastError = `Lỗi gọi OpenRouter: ${err instanceof Error ? err.message : String(err)}`;
+      console.warn(`[ImageGen] OpenRouter call error:`, err);
+    }
+  }
+
+  // 4. Strict check: Must have real image buffer from endpoint. NEVER fallback to SVG!
   if (!imageBuffer) {
-    imageBuffer = createFallbackImageBuffer(fullPrompt, width, height, params.style);
+    throw new Error(
+      lastError ||
+      `Endpoint tạo ảnh không trả về dữ liệu hình ảnh (Model: ${modelToUse}). Vui lòng kiểm tra lại cấu hình endpoint.`
+    );
   }
 
   const format = detectImageFormat(imageBuffer);
