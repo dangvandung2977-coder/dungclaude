@@ -21,6 +21,7 @@ import {
   Sparkles,
   Maximize2,
   Palette,
+  Loader2,
 } from "lucide-react";
 import { Markdown } from "./Markdown";
 import { CodeBlock } from "./CodeBlock";
@@ -263,6 +264,113 @@ function CsvTable({ text }: { text: string }) {
   );
 }
 
+function GeneratedImageCardItem({
+  img,
+  onOpenLightbox,
+}: {
+  img: { url: string; fileName: string; prompt?: string; aspectRatio?: string; model?: string };
+  onOpenLightbox: (item: { url: string; fileName: string }) => void;
+}) {
+  const [hasError, setHasError] = useState(false);
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  return (
+    <div className="group/imgcard rounded-2xl bg-[#1E1D1B] border border-white/10 hover:border-[#D97757]/40 shadow-xl overflow-hidden max-w-xl transition-all duration-200">
+      {/* Image visual container */}
+      <div
+        className="relative overflow-hidden cursor-zoom-in bg-black/40 flex items-center justify-center min-h-[220px] max-h-[500px]"
+        onClick={() => !hasError && onOpenLightbox({ url: img.url, fileName: img.fileName })}
+      >
+        {!isLoaded && !hasError && (
+          <div className="absolute inset-0 flex items-center justify-center bg-[#181716]">
+            <Loader2 size={24} className="animate-spin text-[#D97757]" />
+          </div>
+        )}
+        {hasError ? (
+          <div className="p-8 text-center flex flex-col items-center gap-2 text-[#A6A49B]">
+            <Sparkles size={24} className="text-[#D97757]/60 mb-1" />
+            <p className="text-xs font-medium text-[#ECEBE4]">Không thể hiển thị ảnh trực tiếp</p>
+            <p className="text-[11px] text-[#75736C]">Bạn có thể tải ảnh về máy hoặc mở rộng</p>
+          </div>
+        ) : (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={img.url}
+            alt={img.prompt || img.fileName}
+            onLoad={() => setIsLoaded(true)}
+            onError={() => setHasError(true)}
+            className={cn(
+              "w-full h-auto max-h-[500px] object-contain transition-transform duration-300 group-hover/imgcard:scale-[1.01]",
+              !isLoaded && "opacity-0"
+            )}
+          />
+        )}
+        {/* Overlay Badge */}
+        <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/70 backdrop-blur-md border border-white/15 text-[11px] font-medium text-[#ECEBE4]">
+          <Sparkles size={11} className="text-[#D97757]" />
+          <span>AI Generated</span>
+          {img.aspectRatio && (
+            <span className="text-[#A6A49B] font-mono text-[10px]">· {img.aspectRatio}</span>
+          )}
+        </div>
+
+        {/* Quick Expand Button */}
+        {!hasError && (
+          <div className="absolute top-2.5 right-2.5 p-1.5 rounded-lg bg-black/70 backdrop-blur-md border border-white/15 text-[#ECEBE4] opacity-0 group-hover/imgcard:opacity-100 transition-opacity">
+            <Maximize2 size={13} />
+          </div>
+        )}
+      </div>
+
+      {/* Footer Bar */}
+      <div className="p-3 bg-[#242321] border-t border-white/[0.06] flex items-center justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          {img.prompt ? (
+            <p className="text-xs text-[#ECEBE4] line-clamp-1 italic font-sans" title={img.prompt}>
+              “{img.prompt}”
+            </p>
+          ) : (
+            <p className="text-xs text-[#ECEBE4] truncate font-mono">{img.fileName}</p>
+          )}
+          <p className="text-[11px] text-[#75736C] mt-0.5">
+            {img.model ? `${img.model} · ` : ""}Nhấp vào ảnh để phóng to
+          </p>
+        </div>
+
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={() => onOpenLightbox({ url: img.url, fileName: img.fileName })}
+            disabled={hasError}
+            className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-[#A6A49B] hover:text-[#ECEBE4] hover:bg-white/[0.06] border border-white/10 transition-colors cursor-pointer disabled:opacity-40"
+            title="Xem toàn màn hình"
+          >
+            <Maximize2 size={13} />
+          </button>
+          <a
+            href={img.url}
+            download={img.fileName}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#D97757]/15 hover:bg-[#D97757]/25 text-[#D97757] border border-[#D97757]/30 transition-colors"
+            title="Tải ảnh về máy"
+          >
+            <Download size={12} />
+            <span>Tải về</span>
+          </a>
+          {img.prompt && (
+            <Link
+              href={`/app/images?prompt=${encodeURIComponent(img.prompt)}`}
+              className="inline-flex items-center gap-1 p-1.5 rounded-lg text-xs font-medium text-[#A6A49B] hover:text-[#ECEBE4] hover:bg-white/[0.06] border border-white/10 transition-colors"
+              title="Mở trong Studio Tạo ảnh"
+            >
+              <Palette size={13} className="text-[#D97757]" />
+            </Link>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface MessageItemProps {
   message: Message;
   streaming?: boolean;
@@ -331,7 +439,9 @@ export const MessageItem = React.memo(function MessageItem({
 
     for (const p of safeParts) {
       if (p && p.type === "image" && (p.url || p.fileId)) {
-        const url = p.fileId ? `/api/files/${p.fileId}` : (p.url || "");
+        const rawUrl = (p.url && typeof p.url === "string" ? p.url.trim() : "");
+        const rawFileId = (p.fileId && typeof p.fileId === "string" && !p.fileId.startsWith("img_") ? p.fileId.trim() : "");
+        const url = rawUrl || (rawFileId ? `/api/files/${rawFileId}` : "");
         if (url && !seen.has(url)) {
           seen.add(url);
           list.push({ url, fileName: p.fileName || "ai-generated-image.png" });
@@ -347,7 +457,9 @@ export const MessageItem = React.memo(function MessageItem({
               ? JSON.parse(raw)
               : {};
           if (parsed.success && (parsed.imageUrl || parsed.fileId)) {
-            const url = (parsed.fileId ? `/api/files/${parsed.fileId}` : parsed.imageUrl) as string;
+            const rawUrl = (typeof parsed.imageUrl === "string" ? parsed.imageUrl.trim() : "");
+            const rawFileId = (typeof parsed.fileId === "string" && !parsed.fileId.startsWith("img_") ? parsed.fileId.trim() : "");
+            const url = rawUrl || (rawFileId ? `/api/files/${rawFileId}` : "");
             if (url && !seen.has(url)) {
               seen.add(url);
               list.push({
@@ -674,81 +786,11 @@ export const MessageItem = React.memo(function MessageItem({
         {generatedImages.length > 0 && (
           <div className="flex flex-col gap-3 my-3">
             {generatedImages.map((img, idx) => (
-              <div
-                key={idx}
-                className="group/imgcard rounded-2xl bg-[#1E1D1B] border border-white/10 hover:border-[#D97757]/40 shadow-xl overflow-hidden max-w-xl transition-all duration-200"
-              >
-                {/* Image visual container */}
-                <div
-                  className="relative overflow-hidden cursor-zoom-in bg-black/40 flex items-center justify-center min-h-[220px] max-h-[500px]"
-                  onClick={() => setLightboxImg({ url: img.url, fileName: img.fileName })}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={img.url}
-                    alt={img.prompt || img.fileName}
-                    className="w-full h-auto max-h-[500px] object-contain transition-transform duration-300 group-hover/imgcard:scale-[1.01]"
-                  />
-                  {/* Overlay Badge */}
-                  <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/70 backdrop-blur-md border border-white/15 text-[11px] font-medium text-[#ECEBE4]">
-                    <Sparkles size={11} className="text-[#D97757]" />
-                    <span>AI Generated</span>
-                    {img.aspectRatio && (
-                      <span className="text-[#A6A49B] font-mono text-[10px]">· {img.aspectRatio}</span>
-                    )}
-                  </div>
-
-                  {/* Quick Expand Button */}
-                  <div className="absolute top-2.5 right-2.5 p-1.5 rounded-lg bg-black/70 backdrop-blur-md border border-white/15 text-[#ECEBE4] opacity-0 group-hover/imgcard:opacity-100 transition-opacity">
-                    <Maximize2 size={13} />
-                  </div>
-                </div>
-
-                {/* Footer Bar */}
-                <div className="p-3 bg-[#242321] border-t border-white/[0.06] flex items-center justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    {img.prompt ? (
-                      <p className="text-xs text-[#ECEBE4] line-clamp-1 italic font-sans" title={img.prompt}>
-                        “{img.prompt}”
-                      </p>
-                    ) : (
-                      <p className="text-xs text-[#ECEBE4] truncate font-mono">{img.fileName}</p>
-                    )}
-                    <p className="text-[11px] text-[#75736C] mt-0.5">
-                      {img.model ? `${img.model} · ` : ""}Nhấp vào ảnh để phóng to
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => setLightboxImg({ url: img.url, fileName: img.fileName })}
-                      className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-[#A6A49B] hover:text-[#ECEBE4] hover:bg-white/[0.06] border border-white/10 transition-colors cursor-pointer"
-                      title="Xem toàn màn hình"
-                    >
-                      <Maximize2 size={13} />
-                    </button>
-                    <a
-                      href={img.url}
-                      download={img.fileName}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#D97757]/15 hover:bg-[#D97757]/25 text-[#D97757] border border-[#D97757]/30 transition-colors"
-                      title="Tải ảnh về máy"
-                    >
-                      <Download size={13} />
-                      <span className="hidden sm:inline">Tải về</span>
-                    </a>
-                    {img.prompt && (
-                      <Link
-                        href={`/app/images?prompt=${encodeURIComponent(img.prompt)}`}
-                        className="inline-flex items-center gap-1 p-1.5 rounded-lg text-xs font-medium text-[#A6A49B] hover:text-[#ECEBE4] hover:bg-white/[0.06] border border-white/10 transition-colors"
-                        title="Mở trong Studio Tạo ảnh"
-                      >
-                        <Palette size={13} className="text-[#D97757]" />
-                      </Link>
-                    )}
-                  </div>
-                </div>
-              </div>
+              <GeneratedImageCardItem
+                key={`${img.url}-${idx}`}
+                img={img}
+                onOpenLightbox={(item) => setLightboxImg(item)}
+              />
             ))}
           </div>
         )}

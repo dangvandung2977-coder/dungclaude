@@ -18,6 +18,7 @@ export interface ImageGenParams {
 
 export interface GeneratedImageResult {
   id: string;
+  fileId?: string;
   url: string;
   fileName: string;
   prompt: string;
@@ -175,6 +176,41 @@ function createFallbackImageBuffer(prompt: string, width: number, height: number
 }
 
 /**
+ * Resolves standard OpenAI-compatible image dimensions.
+ * Standard endpoints (DALL-E 3, Gemini Image proxies, Flux, Midjourney)
+ * strictly require 1024x1024, 1024x1792 (portrait), or 1792x1024 (landscape).
+ */
+export function resolveApiImageSize(aspectRatio?: string, width = 1024, height = 1024): string {
+  if (aspectRatio === "9:16" || aspectRatio === "3:4" || height > width) {
+    return "1024x1792";
+  }
+  if (aspectRatio === "16:9" || aspectRatio === "4:3" || width > height) {
+    return "1792x1024";
+  }
+  return "1024x1024";
+}
+
+/**
+ * Sniffs image buffer magic bytes to determine exact MIME type and extension.
+ */
+export function detectImageFormat(buf: Buffer): { mimeType: string; ext: string } {
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
+    return { mimeType: "image/jpeg", ext: "jpg" };
+  }
+  if (buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
+    return { mimeType: "image/png", ext: "png" };
+  }
+  if (buf.length >= 12 && buf.toString("ascii", 0, 4) === "RIFF" && buf.toString("ascii", 8, 12) === "WEBP") {
+    return { mimeType: "image/webp", ext: "webp" };
+  }
+  const prefix = buf.toString("utf8", 0, Math.min(buf.length, 120)).trim();
+  if (prefix.startsWith("<svg") || prefix.startsWith("<?xml")) {
+    return { mimeType: "image/svg+xml", ext: "svg" };
+  }
+  return { mimeType: "image/png", ext: "png" };
+}
+
+/**
  * Core image generation function.
  * Dispatches to Admin-configured endpoint (DALL-E 3, OpenRouter, Custom Endpoint, or Fallback).
  */
@@ -205,6 +241,7 @@ export async function generateImage(params: ImageGenParams): Promise<GeneratedIm
   let mimeType = "image/png";
 
   const ref = parseModelRef(modelToUse);
+  const apiSize = resolveApiImageSize(aspectRatio, width, height);
 
   // 1. Try Custom Endpoint if routed to a custom model
   if (ref.provider === "custom" && ref.endpointId) {
@@ -223,17 +260,33 @@ export async function generateImage(params: ImageGenParams): Promise<GeneratedIm
           headers["Authorization"] = `Bearer ${cred.key}`;
         }
 
-        const resp = await fetch(url, {
-          method: "POST",
-          headers,
-          body: JSON.stringify({
+        const callEndpoint = async (sizeParam?: string) => {
+          const bodyPayload: Record<string, unknown> = {
             prompt: fullPrompt,
             model: ref.model,
-            size: `${width}x${height}`,
             n: 1,
             response_format: "b64_json",
-          }),
-        });
+          };
+          if (sizeParam) bodyPayload.size = sizeParam;
+          return fetch(url, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(bodyPayload),
+          });
+        };
+
+        let resp = await callEndpoint(apiSize);
+
+        // If rejected due to size (400), retry with 1024x1024
+        if (!resp.ok && resp.status === 400 && apiSize !== "1024x1024") {
+          console.warn(`[ImageGen] Custom endpoint returned 400 for size ${apiSize}, retrying with 1024x1024`);
+          resp = await callEndpoint("1024x1024");
+        }
+        // If still 400, retry without size parameter
+        if (!resp.ok && resp.status === 400) {
+          console.warn(`[ImageGen] Custom endpoint returned 400, retrying without size parameter`);
+          resp = await callEndpoint(undefined);
+        }
 
         if (resp.ok) {
           const json = await resp.json();
@@ -264,21 +317,16 @@ export async function generateImage(params: ImageGenParams): Promise<GeneratedIm
     try {
       const openAiCfg = await getProviderConfig("openai");
       if (openAiCfg && openAiCfg.enabled && openAiCfg.hasKey) {
-        // OpenAI DALL-E 3 supported sizes: 1024x1024, 1024x1792, 1792x1024
-        let size = "1024x1024";
-        if (aspectRatio === "16:9" || width > height) size = "1792x1024";
-        else if (aspectRatio === "9:16" || height > width) size = "1024x1792";
-
         const resp = await fetch("https://api.openai.com/v1/images/generations", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${openAiCfg.keyHint || ""}`, // will use decrypt in getProviderConfig if needed
+            Authorization: `Bearer ${openAiCfg.keyHint || ""}`,
           },
           body: JSON.stringify({
             model: "dall-e-3",
             prompt: fullPrompt,
-            size,
+            size: apiSize,
             quality: "standard",
             response_format: "b64_json",
             n: 1,
@@ -301,14 +349,17 @@ export async function generateImage(params: ImageGenParams): Promise<GeneratedIm
   // 3. Fallback: High-Definition Vector Synthesis (Guarantees 100% success rate without 500 error)
   if (!imageBuffer) {
     imageBuffer = createFallbackImageBuffer(fullPrompt, width, height, params.style);
-    mimeType = "image/svg+xml";
   }
 
+  const format = detectImageFormat(imageBuffer);
+  mimeType = format.mimeType;
+  const fileExt = format.ext;
+
   // Generate file name & id
-  let fileId = uid("img_");
-  const fileExt = mimeType === "image/svg+xml" ? "svg" : "png";
+  let attachmentId: string | undefined = undefined;
+  const tempFileId = uid("img_");
   const fileName = `ai_gen_${Date.now()}_${aspectRatio.replace(":", "x")}.${fileExt}`;
-  const storagePath = `${params.userId || "shared"}/images/${fileId}-${fileName}`;
+  const storagePath = `${params.userId || "shared"}/images/${tempFileId}-${fileName}`;
 
   let finalUrl = `data:${mimeType};base64,${imageBuffer.toString("base64")}`;
 
@@ -328,16 +379,17 @@ export async function generateImage(params: ImageGenParams): Promise<GeneratedIm
         parsedText: `[Ảnh do AI tạo theo prompt]: ${fullPrompt}`,
       });
       if (rec?.id) {
-        fileId = rec.id;
+        attachmentId = rec.id;
         finalUrl = `/api/files/${rec.id}`;
       }
     }
-  } catch {
-    // If storage is unavailable, fallback to base64 data URL
+  } catch (err) {
+    console.warn("[ImageGen] Storage upload or attachment creation skipped:", err);
   }
 
   return {
-    id: fileId,
+    id: attachmentId || "",
+    fileId: attachmentId,
     url: finalUrl,
     fileName,
     prompt: fullPrompt,

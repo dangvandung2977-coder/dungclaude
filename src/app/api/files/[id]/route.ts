@@ -12,7 +12,12 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     const user = await requireUser();
     const { id } = await ctx.params;
     const a = await getAttachment(id);
-    if (!a || a.userId !== user.id) return fail("Không tìm thấy file.", 404);
+    const canAccess =
+      !a?.userId ||
+      a.userId === user.id ||
+      a.userId === "shared" ||
+      user.role === "admin";
+    if (!a || !canAccess) return fail("Không tìm thấy file.", 404);
     const buf = await downloadBuffer(a.storagePath);
     return new Response(new Uint8Array(buf), {
       headers: {

@@ -198,6 +198,7 @@ You MUST call the "generate_image" tool with prompt: "${imgIntent.prompt}" to cr
         executeTool(name, input, {
           conversationId: conv.id,
           projectId: conv.projectId ?? undefined,
+          userId: user.id,
         }),
     });
 
@@ -215,10 +216,11 @@ You MUST call the "generate_image" tool with prompt: "${imgIntent.prompt}" to cr
         try {
           const imgData = JSON.parse(tc.output);
           if (imgData.success && (imgData.imageUrl || imgData.fileId)) {
+            const finalImgUrl = imgData.imageUrl || (imgData.fileId ? `/api/files/${imgData.fileId}` : "");
             generatedImageParts.push({
               type: "image",
-              url: imgData.imageUrl,
-              fileId: imgData.fileId,
+              url: finalImgUrl,
+              fileId: imgData.fileId || undefined,
               fileName: imgData.fileName || "ai-generated-image.png",
               mimeType: "image/png",
             });
@@ -234,12 +236,15 @@ You MUST call the "generate_image" tool with prompt: "${imgIntent.prompt}" to cr
           prompt: imgIntent.prompt,
           userId: user.id,
           conversationId: conv.id,
+          projectId: conv.projectId ?? undefined,
         });
         if (autoImg && (autoImg.url || autoImg.id)) {
+          const autoUrl = autoImg.url || (autoImg.id ? `/api/files/${autoImg.id}` : "");
+          const validFileId = autoImg.fileId || (autoImg.id && !autoImg.id.startsWith("img_") ? autoImg.id : undefined);
           generatedImageParts.push({
             type: "image",
-            url: autoImg.url,
-            fileId: autoImg.id,
+            url: autoUrl,
+            fileId: validFileId,
             fileName: autoImg.fileName || "ai-generated-image.png",
             mimeType: "image/png",
           });

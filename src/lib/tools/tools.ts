@@ -76,7 +76,11 @@ export function calculate(expr: string): number {
   return out;
 }
 
-export async function executeTool(name: string, input: unknown, ctx?: { conversationId?: string; projectId?: string }): Promise<string> {
+export async function executeTool(
+  name: string,
+  input: unknown,
+  ctx?: { conversationId?: string; projectId?: string; userId?: string }
+): Promise<string> {
   const args = (input ?? {}) as Record<string, unknown>;
   if (name === "calculator") {
     const v = calculate(String(args.expression ?? ""));
@@ -97,15 +101,16 @@ export async function executeTool(name: string, input: unknown, ctx?: { conversa
     const { generateImage } = await import("@/lib/ai/image-gen");
     const res = await generateImage({
       prompt: String(args.prompt ?? ""),
-      aspectRatio: (args.aspectRatio as string) || "1:1",
+      aspectRatio: (args.aspectRatio as string) || (args.aspect_ratio as string) || "1:1",
       style: args.style ? String(args.style) : undefined,
       conversationId: ctx?.conversationId,
       projectId: ctx?.projectId,
+      userId: ctx?.userId,
     });
     return JSON.stringify({
       success: true,
       imageUrl: res.url,
-      fileId: res.id,
+      fileId: res.fileId || (res.id && !res.id.startsWith("img_") ? res.id : null),
       fileName: res.fileName,
       prompt: res.prompt,
       aspectRatio: res.aspectRatio,

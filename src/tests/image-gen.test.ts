@@ -4,6 +4,8 @@ import {
   STYLE_PRESETS,
   getAvailableImageModels,
   generateImage,
+  resolveApiImageSize,
+  detectImageFormat,
 } from "@/lib/ai/image-gen";
 import { executeTool } from "@/lib/tools/tools";
 import { FUNCTION_LABELS } from "@/lib/config";
@@ -56,6 +58,25 @@ describe("Image Generation System", () => {
 
       expect(STYLE_PRESETS.cyberpunk).toBeDefined();
       expect(STYLE_PRESETS.cyberpunk.promptSuffix).toContain("cyberpunk");
+    });
+
+    it("maps aspect ratios to standard OpenAI-compatible API sizes", () => {
+      expect(resolveApiImageSize("1:1")).toBe("1024x1024");
+      expect(resolveApiImageSize("3:4")).toBe("1024x1792");
+      expect(resolveApiImageSize("9:16")).toBe("1024x1792");
+      expect(resolveApiImageSize("4:3")).toBe("1792x1024");
+      expect(resolveApiImageSize("16:9")).toBe("1792x1024");
+    });
+
+    it("detects image format from magic bytes correctly", () => {
+      const jpegBuf = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]);
+      expect(detectImageFormat(jpegBuf)).toEqual({ mimeType: "image/jpeg", ext: "jpg" });
+
+      const pngBuf = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+      expect(detectImageFormat(pngBuf)).toEqual({ mimeType: "image/png", ext: "png" });
+
+      const svgBuf = Buffer.from("<svg xmlns='http://www.w3.org/2000/svg'></svg>");
+      expect(detectImageFormat(svgBuf)).toEqual({ mimeType: "image/svg+xml", ext: "svg" });
     });
   });
 
