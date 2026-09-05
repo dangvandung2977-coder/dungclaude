@@ -2,6 +2,7 @@ import { config } from "@/lib/config";
 import { modelNameOf, providerOf, parseModelRef, estimateTokens } from "./registry";
 import { getProviderApiKey, getProviderApiKeys, getProviderConfig } from "./providers-config";
 import { getEndpointCredentials, getAvailableCustomModels } from "./custom-endpoints";
+import { resolveModelIdentity } from "./system-prompt";
 import { isStreamingSupported, markStreamingUnsupported, isUpstreamUnsupportedError } from "./streaming-capabilities";
 import { getSupabase } from "@/lib/db/supabase";
 import { EnvHttpProxyAgent, setGlobalDispatcher } from "undici";
@@ -171,7 +172,7 @@ async function callOpenAICompatible(opts: {
   baseUrl: string; apiKey: string; model: string; messages: GatewayMessage[];
   tools: GatewayTool[]; cb: StreamCallbacks; timeoutMs: number; maxTokens?: number;
   supportsStreaming?: boolean; capabilities?: string[];
-  reasoningEffort?: "low" | "medium" | "high";
+  reasoningEffort?: "low" | "medium" | "high" | "max";
 }): Promise<RawCallResult> {
   // 1. Determine if this model / endpoint supports streaming
   let isStream = opts.supportsStreaming;
@@ -183,7 +184,7 @@ async function callOpenAICompatible(opts: {
     });
   }
 
-  const buildBody = (streamMode: boolean, modelName: string) => {
+  const buildBody = (streamMode: boolean, modelName: string, overrideEffort?: string) => {
     const body: Record<string, unknown> = {
       model: modelName,
       // No artificial output token limit — allow model to generate up to full native capacity
@@ -199,12 +200,15 @@ async function callOpenAICompatible(opts: {
     const isReasoningSupported =
       isGlm53Free ||
       opts.capabilities?.includes("reasoning_effort") ||
-      /(?:^|[:/_ -])(?:o[134]|deepseek-r1|deepseek-reasoner|qwq|glm-5)/i.test(lowerModel) ||
+      opts.capabilities?.includes("reasoning") ||
+      Boolean(opts.reasoningEffort) ||
+      /(?:^|[:/_ -])(?:o[134]|deepseek-r1|deepseek-reasoner|qwq|glm-5|astra)/i.test(lowerModel) ||
       lowerModel.includes("glm-5") ||
+      lowerModel.includes("astra") ||
       (lowerModel.includes("thinking") && !lowerModel.includes("claude"));
 
     // For z-ai/glm-5.3-free, default to "high" (max effort per user request)
-    const effort = opts.reasoningEffort ?? (isGlm53Free ? "high" : undefined);
+    const effort = overrideEffort ?? opts.reasoningEffort ?? (isGlm53Free ? "high" : undefined);
     if (isReasoningSupported && effort) {
       body.reasoning_effort = effort;
     }
@@ -232,7 +236,11 @@ async function callOpenAICompatible(opts: {
     return body;
   };
 
-  const executePost = async (modelName: string, streamMode: boolean) => {
+  const executePost = async (
+    modelName: string,
+    streamMode: boolean,
+    overrideEffort?: "low" | "medium" | "high" | "max"
+  ) => {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs);
     const onAbort = () => ctrl.abort();
@@ -246,7 +254,7 @@ async function callOpenAICompatible(opts: {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36 DungClaude/1.0",
           Accept: "application/json, text/event-stream",
         },
-        body: JSON.stringify(buildBody(streamMode, modelName)),
+        body: JSON.stringify(buildBody(streamMode, modelName, overrideEffort)),
         signal: ctrl.signal,
       });
       return { res, ctrl };
@@ -258,6 +266,19 @@ async function callOpenAICompatible(opts: {
 
   const modelToUse = opts.model;
   let { res } = await executePost(modelToUse, isStream);
+
+  // 1.5. If "max" reasoning effort was rejected with 400 (e.g. model only accepts low/medium/high), retry with "high"
+  if (!res.ok && res.status === 400 && opts.reasoningEffort === "max") {
+    const errClone = res.clone();
+    const errText = await errClone.text().catch(() => "");
+    if (/reasoning_effort|effort/i.test(errText)) {
+      console.warn(`[AI Gateway] Upstream rejected reasoning_effort="max" (${errText.slice(0, 100)}). Auto-falling back to "high"...`);
+      const retry = await executePost(modelToUse, isStream, "high");
+      if (retry.res.ok) {
+        res = retry.res;
+      }
+    }
+  }
 
   // 2. Automatic mismatch detection & fast non-streaming retry:
   // If streaming was requested but upstream returned 400 with upstream_unsupported error
@@ -345,7 +366,7 @@ async function callAnthropic(opts: {
   apiKey: string; model: string; messages: GatewayMessage[]; system?: string;
   stableSystemPrefix?: string; tools: GatewayTool[]; cb: StreamCallbacks;
   timeoutMs: number; maxTokens?: number;
-  reasoningEffort?: "low" | "medium" | "high";
+  reasoningEffort?: "low" | "medium" | "high" | "max";
 }): Promise<RawCallResult> {
   // Convert to Anthropic blocks: images as base64 source, video/files as text context.
   const messages = opts.messages.filter((m) => m.role !== "system").map((m) => {
@@ -381,7 +402,14 @@ async function callAnthropic(opts: {
   let thinkingConfig: { type: "enabled"; budget_tokens: number } | undefined;
   let maxTokens = 64000;
   if (isThinkingModel && opts.reasoningEffort) {
-    const budget = opts.reasoningEffort === "low" ? 2048 : opts.reasoningEffort === "medium" ? 8192 : 16384;
+    const budget =
+      opts.reasoningEffort === "low"
+        ? 2048
+        : opts.reasoningEffort === "medium"
+        ? 8192
+        : opts.reasoningEffort === "high"
+        ? 16384
+        : 32768;
     thinkingConfig = { type: "enabled", budget_tokens: budget };
     if (maxTokens <= budget) {
       maxTokens = budget + 4096;
@@ -541,10 +569,12 @@ async function callDemo(model: string, messages: GatewayMessage[], cb: StreamCal
 
   let md = "";
 
+  const identity = resolveModelIdentity(model);
+
   // 0. Greetings / Identity
-  if (/bạn là (ai|model|gì)|model nào|who are you|what model/i.test(lower)) {
-    md += `Tôi là **DungClaude** — trợ lý trí tuệ nhân tạo được xây dựng trên nền tảng DungClaude AI Workspace.\n\n`;
-    md += `Hiện tại bạn đang tương tác thông qua định danh mô hình **${model}**.\n\n`;
+  if (/bạn là (ai|model|gì)|model nào|who are you|what model|are you/i.test(lower)) {
+    md += `Tôi là **${identity.displayName}** (được phát triển bởi **${identity.developer}**), trợ lý trí tuệ nhân tạo đang hoạt động trên nền tảng **DungClaude AI Workspace**.\n\n`;
+    md += `Mô hình thực thi hiện tại: \`${identity.id}\`.\n\n`;
     md += `Tôi có thể hỗ trợ bạn:\n`;
     md += `- Lập trình & giải quyết bài toán kỹ thuật (Full-stack, Python, Rust, Go, v.v.)\n`;
     md += `- Phân tích tài liệu, hình ảnh & video đa phương thức\n`;
@@ -552,7 +582,7 @@ async function callDemo(model: string, messages: GatewayMessage[], cb: StreamCal
     md += `- Đóng gói dự án mã nguồn thành tệp ZIP hoàn chỉnh.\n\n`;
     md += `Tôi có thể giúp gì cho bạn hôm nay?`;
   } else if (/^(chào|hello|hi|hey|xin chào)\b/i.test(lower.trim())) {
-    md += `Xin chào! Tôi là **DungClaude**, trợ lý AI của bạn. Rất vui được đồng hành cùng bạn hôm nay!\n\n`;
+    md += `Xin chào! Tôi là **${identity.displayName}**, trợ lý AI của bạn trên DungClaude AI Workspace. Rất vui được đồng hành cùng bạn hôm nay!\n\n`;
     md += `Bạn đang cần viết mã nguồn, giải đáp thắc mắc kỹ thuật hay xây dựng dự án nào không?`;
   }
   // 1. If asking for code / landing page / component / dashboard / HTML / React
@@ -703,7 +733,7 @@ export async function runGateway(opts: {
   maxTokens?: number; // dynamic output budget (optimization engine)
   supportsStreaming?: boolean;
   capabilities?: string[];
-  reasoningEffort?: "low" | "medium" | "high";
+  reasoningEffort?: "low" | "medium" | "high" | "max";
 }): Promise<GatewayResult> {
   const provider = providerOf(opts.modelId);
   const model = modelNameOf(opts.modelId);

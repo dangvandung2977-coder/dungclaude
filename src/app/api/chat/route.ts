@@ -23,7 +23,9 @@ import { downloadBuffer } from "@/lib/files/storage";
 import { getOptimizationSettings, parseUserMode } from "@/lib/ai/optimization/settings";
 import { optimizeContext } from "@/lib/ai/optimization/optimize";
 import { calculateCost, checkUserQuota, checkCostBudget, recordOptimizedUsage } from "@/lib/ai/optimization/usage";
+import { buildBaseSystem } from "@/lib/ai/system-prompt";
 import { isUpstreamUnsupportedError } from "@/lib/ai/streaming-capabilities";
+import { isPromptCreationRequest } from "@/lib/prompt-intent";
 import type { AIModel } from "@/types";
 
 export const runtime = "nodejs";
@@ -44,6 +46,9 @@ const schema = z.object({
   systemPrompt: z.string().max(10000).optional(),
   responseLength: z.enum(["concise", "balanced", "detailed"]).optional().default("balanced"),
   optimizationMode: z.enum(["cost_efficient", "balanced", "max_quality"]).optional(),
+  reasoningEffort: z.enum(["low", "medium", "high", "max"]).optional(),
+  model_reasoning_effort: z.enum(["low", "medium", "high", "max"]).optional(),
+  reasoning_effort: z.enum(["low", "medium", "high", "max"]).optional(),
 });
 
 export async function POST(req: Request): Promise<Response> {
@@ -115,17 +120,7 @@ export async function POST(req: Request): Promise<Response> {
   ]);
 
   const history = await listMessages(conv.id, 50);
-  const baseSystem = `You are DungClaude, an expert AI assistant and practical coding agent. Respond in the user's preferred language (Vietnamese if the user writes in Vietnamese, English if in English).
-When asked to write software, build projects, or produce code:
-1. Act as a practical, agile coding agent: write clean, complete, and production-ready code with an organized folder layout.
-2. For all requested components or multi-file projects, produce the COMPLETE code without truncation or lazy placeholders like '// TODO' or '...rest of implementation...'.
-3. Always label every code block with its exact relative file path in the markdown fence info header, e.g.:
-   \`\`\`python:game/main.py
-   or
-   \`\`\`typescript:src/components/Header.tsx
-   This ensures that the project ZIP bundling tool accurately preserves all nested folders and filenames.
-4. Keep the solution direct and functional: do NOT generate bulky, complex test suites, mock frameworks, or unnecessary test boilerplate unless the user explicitly asks for tests. Focus directly on the working application code.
-5. Use clean Markdown formatting with clear syntax highlighting.`;
+  const baseSystem = (targetModel: AIModel) => buildBaseSystem(targetModel, availableModels);
   const projectInstructions = project?.instructions ? `[Project instructions — always follow]:\n${project.instructions}` : "";
   const { modelId } = await resolveModel({ explicit: body.modelId, hasVideo: false, hasImage: false });
 
@@ -157,17 +152,32 @@ When asked to write software, build projects, or produce code:
   const toolEvents: Array<{ id: string; name: string; input: unknown; output: string }> = [];
 
   try {
+    const promptEnforcement = isPromptCreationRequest(body.content)
+      ? `\n\n[MANDATORY FORMATTING REQUIREMENT]:
+The user requested a prompt. You MUST output the entire prompt enclosed inside a single file code block using FOUR BACKTICKS (\`\`\`\`) labeled:
+\`\`\`\`markdown:prompt.md
+<complete prompt content here>
+\`\`\`\`
+CRITICAL:
+1. You MUST use FOUR backticks (\`\`\`\`) for the outer container: \`\`\`\`markdown:prompt.md and close with \`\`\`\`.
+2. NEVER use three backticks (\`\`\`) for the outer prompt block, because prompts often describe code or code files, and using 3 backticks will prematurely close and fragment the prompt.
+3. DO NOT output fragmented or empty code blocks (like \`\`\`css:style.css \`\`\`). Keep all instructions inside the single \`\`\`\`markdown:prompt.md\`\`\`\` block.
+4. DO NOT use plain text headings outside code blocks.
+5. The prompt MUST be 100% inside this single block so the user can 1-click copy and insert it into their chat composer!`
+      : "";
+
     const result = await runGateway({
       modelId: optimized.routing.modelId,
       messages: optimized.messages.map((m, i) =>
         i === optimized.messages.length - 1 ? { ...m, attachments: atts } : m
       ),
-      system: optimized.system,
+      system: `${optimized.system}${promptEnforcement}`,
       stableSystemPrefix: optimized.stableSystemPrefix,
       tools: [],
       maxTokens: undefined,
       supportsStreaming: false, // Explicitly non-streaming request
       capabilities: modelMeta?.capabilities,
+      reasoningEffort: body.reasoningEffort ?? body.model_reasoning_effort ?? body.reasoning_effort,
       cb: {
         onToken: (t) => {
           full += t;
@@ -181,9 +191,30 @@ When asked to write software, build projects, or produce code:
         }),
     });
 
-    full = result.text;
+    const generatedImageParts: Array<{
+      type: "image";
+      url: string;
+      fileId?: string;
+      fileName?: string;
+      mimeType: string;
+    }> = [];
+
     for (const tc of result.toolCalls) {
       toolEvents.push(tc);
+      if (tc.name === "generate_image" && tc.output) {
+        try {
+          const imgData = JSON.parse(tc.output);
+          if (imgData.success && (imgData.imageUrl || imgData.fileId)) {
+            generatedImageParts.push({
+              type: "image",
+              url: imgData.imageUrl,
+              fileId: imgData.fileId,
+              fileName: imgData.fileName || "ai-generated-image.png",
+              mimeType: "image/png",
+            });
+          }
+        } catch {}
+      }
     }
 
     const inTok =
@@ -204,7 +235,18 @@ When asked to write software, build projects, or produce code:
       conversationId: conv.id,
       role: "assistant",
       content: full,
-      parts: [{ type: "text", text: full }],
+      parts: [
+        { type: "text", text: full },
+        ...generatedImageParts,
+        ...toolEvents.map((t) => ({
+          type: "tool_call" as const,
+          toolName: t.name,
+          toolCallId: t.id,
+          toolInput: t.input,
+          toolOutput: t.output,
+          status: "success" as const,
+        })),
+      ],
       modelId: optimized.routing.modelId,
     });
     await updateMessageStats(assistantMsg.id, inTok, outTok, cost);

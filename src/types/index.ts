@@ -89,7 +89,7 @@ export interface AIModelCapability {
   label: string;
 }
 
-export type ReasoningEffort = "low" | "medium" | "high";
+export type ReasoningEffort = "low" | "medium" | "high" | "max";
 
 export interface AIModel {
   id: string;

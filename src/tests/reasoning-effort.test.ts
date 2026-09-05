@@ -47,10 +47,10 @@ describe("Reasoning Effort & Model Capability Detection", () => {
     expect(getDefaultReasoningEffort("claude-3-7-sonnet")).toBe("medium");
   });
 
-  it("has complete reasoning effort options definitions", () => {
-    expect(REASONING_EFFORT_OPTIONS).toHaveLength(3);
+  it("has complete reasoning effort options definitions (low, medium, high, max)", () => {
+    expect(REASONING_EFFORT_OPTIONS).toHaveLength(4);
     const ids = REASONING_EFFORT_OPTIONS.map((o) => o.id);
-    expect(ids).toEqual(["low", "medium", "high"]);
+    expect(ids).toEqual(["low", "medium", "high", "max"]);
     for (const opt of REASONING_EFFORT_OPTIONS) {
       expect(opt.label).toBeTruthy();
       expect(opt.shortLabel).toBeTruthy();

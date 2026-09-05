@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
+import { CircularLoader } from "@/components/ui/CircularLoader";
 
 interface ThinkingIndicatorProps {
   label?: string;
@@ -24,24 +25,21 @@ export function ThinkingIndicator({
   return (
     <div
       className={cn(
-        "flex items-center gap-2.5 py-1.5 px-3 rounded-full bg-[#262523]/70 border border-white/[0.06] backdrop-blur-sm shadow-xs w-fit select-none animate-in fade-in duration-200",
+        "flex items-center gap-2.5 py-1.5 px-3 rounded-full bg-[#262523]/80 border border-white/[0.08] backdrop-blur-md shadow-lg w-fit select-none animate-in fade-in duration-200 ring-1 ring-white/[0.03]",
         className
       )}
       role="status"
       aria-live="polite"
       aria-label={label}
     >
-      {/* 3 Rhythmic Glowing Wave Dots */}
-      <div className="flex items-center gap-1">
-        <span className="h-1.5 w-1.5 rounded-full bg-[#D97757] animate-thinking-dot-1 shadow-[0_0_8px_rgba(217,119,87,0.7)]" />
-        <span className="h-1.5 w-1.5 rounded-full bg-[#E2886A] animate-thinking-dot-2 shadow-[0_0_8px_rgba(217,119,87,0.7)]" />
-        <span className="h-1.5 w-1.5 rounded-full bg-[#F3B39D] animate-thinking-dot-3 shadow-[0_0_8px_rgba(217,119,87,0.7)]" />
-      </div>
+      {/* Premium Circular Orbital Loader */}
+      <CircularLoader size="sm" variant="brand" showAura />
 
       {/* Shimmering Dynamic Text */}
       <span className="animate-text-shimmer font-serif italic text-xs sm:text-sm tracking-wide font-normal">
         {label}
       </span>
+
 
       {/* Neural Wave Bars */}
       <div className="flex items-center gap-0.5 h-3.5 px-1 opacity-75">

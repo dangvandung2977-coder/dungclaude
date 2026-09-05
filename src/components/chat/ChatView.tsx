@@ -13,6 +13,7 @@ import {
   Check,
   Loader2,
 } from "lucide-react";
+import { CircularLoader } from "@/components/ui/CircularLoader";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Composer, type PendingFile } from "./Composer";
@@ -22,6 +23,7 @@ import type { AIModel, Message, ReasoningEffort } from "@/types";
 import { useSession } from "@/hooks/useSession";
 import { cn } from "@/lib/utils";
 import { getDefaultReasoningEffort } from "@/lib/ai/reasoning";
+import { isPromptCreationRequest, extractGeneratedPrompt, insertTextToComposer } from "@/lib/prompt-intent";
 
 function formatSize(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -459,6 +461,7 @@ export function ChatView({
   useEffect(() => { responseLengthRef.current = responseLength; }, [responseLength]);
   const activeConvIdRef = useRef(activeConvId);
   useEffect(() => { activeConvIdRef.current = activeConvId; }, [activeConvId]);
+  const isPromptRequestRef = useRef(false);
 
   // Poll VPS status to recover background generation after a local network drop
   const [isStreamingLive, setIsStreamingLive] = useState(false);
@@ -572,6 +575,15 @@ export function ChatView({
             });
 
             toast("Đã kết nối lại · Đã nhận câu trả lời hoàn chỉnh từ VPS!", "success");
+
+            if (isPromptRequestRef.current) {
+              const generatedPrompt = extractGeneratedPrompt(finalMsg.content || data.text || "");
+              if (generatedPrompt) {
+                insertTextToComposer(generatedPrompt, { onlyIfEmpty: true });
+                toast("✨ Đã tự động đưa prompt vào ô nhập!", "success");
+              }
+              isPromptRequestRef.current = false;
+            }
           } else if (data.status === "error") {
             if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
             pollIntervalRef.current = null;
@@ -640,7 +652,7 @@ export function ChatView({
   const resumeAbortRef = useRef<AbortController | null>(null);
 
   const attachResumeStream = useCallback(
-    async (convId: string, asstId: string) => {
+    async (convId: string, asstId: string, isActualReconnect = false) => {
       if (resumeAbortRef.current) {
         resumeAbortRef.current.abort();
         resumeAbortRef.current = null;
@@ -648,11 +660,16 @@ export function ChatView({
       const ctrl = new AbortController();
       resumeAbortRef.current = ctrl;
 
-      setIsReconnecting(true);
-      setIsStreamingLive(true);
+      if (isActualReconnect) {
+        setIsReconnecting(true);
+        setIsStreamingLive(true);
+      } else {
+        setIsReconnecting(false);
+        setIsStreamingLive(false);
+      }
       setStreaming(true);
       setStatus("");
-      isRecoveringRef.current = true;
+      isRecoveringRef.current = isActualReconnect;
       isGeneratingRef.current = true;
 
       let acc = "";
@@ -670,7 +687,15 @@ export function ChatView({
         });
 
         if (!r.ok || !r.body) {
-          pollRecovery(convId, asstId);
+          if (isActualReconnect) {
+            pollRecovery(convId, asstId);
+          } else {
+            setIsReconnecting(false);
+            setIsStreamingLive(false);
+            setStreaming(false);
+            isGeneratingRef.current = false;
+            isRecoveringRef.current = false;
+          }
           return;
         }
 
@@ -764,6 +789,15 @@ export function ChatView({
                 isGeneratingRef.current = false;
                 isRecoveringRef.current = false;
                 toast("Đã nhận câu trả lời hoàn chỉnh từ VPS!", "success");
+
+                if (isPromptRequestRef.current) {
+                  const generatedPrompt = extractGeneratedPrompt(finalContent);
+                  if (generatedPrompt) {
+                    insertTextToComposer(generatedPrompt, { onlyIfEmpty: true });
+                    toast("✨ Đã tự động đưa prompt vào ô nhập!", "success");
+                  }
+                  isPromptRequestRef.current = false;
+                }
               } else if (type === "error") {
                 setMessages((s) =>
                   s.map((m) =>
@@ -805,6 +839,14 @@ export function ChatView({
           console.warn("[Resume Stream] Connection dropped, falling back to polling...", err);
           pollRecovery(convId, currentAsstId);
         }
+      } finally {
+        if (!pollIntervalRef.current) {
+          setIsReconnecting(false);
+          setIsStreamingLive(false);
+          isRecoveringRef.current = false;
+          isGeneratingRef.current = false;
+          setStreaming(false);
+        }
       }
     },
     [pollRecovery, toast]
@@ -831,16 +873,18 @@ export function ChatView({
   useEffect(() => {
     if (!activeConvId || activeConvId === "new") return;
 
+    // Never attach resume stream if this tab is already actively streaming/generating locally
+    if (isGeneratingRef.current || isRecoveringRef.current) return;
+
     // Check if initial SSR messages already contain a streaming assistant message
     const initialStreaming = messages.find(
       (m) => m.role === "assistant" && (m.status === "streaming" || m.id.startsWith("asst_active_") || m.id.startsWith("asst_bg_"))
     );
     if (initialStreaming) {
-      attachResumeStreamRef.current?.(activeConvId, initialStreaming.id);
+      attachResumeStreamRef.current?.(activeConvId, initialStreaming.id, false);
       return;
     }
 
-    if (isGeneratingRef.current || isRecoveringRef.current) return;
 
     fetch(`/api/chat/status?conversationId=${activeConvId}`)
       .then((r) => r.json())
@@ -1051,6 +1095,28 @@ export function ChatView({
                 ];
               });
               acc = `Tôi đã tạo thành công file **${j.fileName}** (${formatSize(j.sizeBytes ?? 0)}) dựa trên dữ liệu cuộc trò chuyện:`;
+            } else if (type === "image_generated") {
+              setMessages((s) => {
+                const idx = s.findIndex((m) => m.id === currentAsstId);
+                if (idx === -1) return s;
+                const target = s[idx];
+                const newPart = {
+                  id: `img_${Date.now()}`,
+                  type: "image" as const,
+                  url: j.url,
+                  fileId: j.fileId,
+                  fileName: j.fileName || "ai-generated-image.png",
+                  mimeType: "image/png",
+                };
+                return [
+                  ...s.slice(0, idx),
+                  {
+                    ...target,
+                    parts: [...(target.parts || []), newPart],
+                  },
+                  ...s.slice(idx + 1),
+                ];
+              });
             } else if (type === "status") {
               setStatus(j.status ?? "");
             } else if (type === "optimization") {
@@ -1077,14 +1143,31 @@ export function ChatView({
               const finalLatency = typeof j.latencyMs === "number" && j.latencyMs > 0
                 ? j.latencyMs
                 : (streamStartTime ? Date.now() - streamStartTime : undefined);
+              const finalContent = j.text || acc;
               setMessages((s) =>
                 s.map((m) =>
                   m.id === currentAsstId
-                    ? { ...m, id: finalId, content: acc, latencyMs: finalLatency, status: "completed" as const }
+                    ? {
+                        ...m,
+                        id: finalId,
+                        content: finalContent,
+                        latencyMs: finalLatency,
+                        status: "completed" as const,
+                        ...(Array.isArray(j.parts) && j.parts.length > 0 ? { parts: j.parts } : {}),
+                      }
                     : m
                 )
               );
               currentAsstId = finalId;
+
+              if (isPromptRequestRef.current) {
+                const generatedPrompt = extractGeneratedPrompt(finalContent);
+                if (generatedPrompt) {
+                  insertTextToComposer(generatedPrompt, { onlyIfEmpty: true });
+                  toast("✨ Đã tự động đưa prompt vào ô nhập!", "success");
+                }
+                isPromptRequestRef.current = false;
+              }
             } else if (type === "cancelled") {
               if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
               setStatus("");
@@ -1128,23 +1211,32 @@ export function ChatView({
             )
         );
       } else {
-        // Client network dropped / disconnected while streaming!
-        // VPS is still running 24/7 on the cloud and will complete the AI generation!
-        // Do NOT show fatal red network error; initiate background recovery polling!
-        console.warn("[ChatView] Client connection dropped, initiating VPS recovery polling...", e);
-        const targetConv = activeConvIdRef.current;
-        if (targetConv && targetConv !== "new") {
-          isRecoveringRef.current = true;
-          void attachResumeStream(targetConv, currentAsstId);
-          return;
-        }
-
         const rawErr = e instanceof Error ? e.message : String(e);
         const isNetworkErr =
+          (typeof navigator !== "undefined" && !navigator.onLine) ||
           rawErr.includes("Failed to fetch") ||
           rawErr.includes("Load failed") ||
           rawErr.includes("NetworkError") ||
-          rawErr.includes("network");
+          rawErr.includes("network") ||
+          rawErr.includes("ERR_CONNECTION") ||
+          rawErr.includes("fetch failed");
+
+        // ONLY initiate VPS recovery polling if this is an ACTUAL client network disconnect!
+        const targetConv = activeConvIdRef.current;
+        if (isNetworkErr && targetConv && targetConv !== "new") {
+          console.warn("[ChatView] Client connection dropped, initiating VPS recovery polling...", e);
+          isRecoveringRef.current = true;
+          setIsReconnecting(true);
+          setIsStreamingLive(false);
+          void attachResumeStream(targetConv, currentAsstId, true);
+          return;
+        }
+
+        // Reset reconnecting states on server/API errors
+        setIsReconnecting(false);
+        setIsStreamingLive(false);
+        isRecoveringRef.current = false;
+
         const formattedErr = isNetworkErr
           ? "Không thể kết nối đến máy chủ (mạng chập chờn hoặc máy chủ đang tải lại). Vui lòng bấm \"Thử lại\" bên dưới."
           : rawErr;
@@ -1183,6 +1275,7 @@ export function ChatView({
     opts: { webSearch: boolean; tools: boolean; reasoningEffort?: ReasoningEffort }
   ) {
     if (isGeneratingRef.current) return;
+    isPromptRequestRef.current = isPromptCreationRequest(text);
     const tools = [
       ...(opts.tools ? ["calculator", "file_search"] : []),
       ...(opts.webSearch ? ["web_search"] : []),
@@ -1566,9 +1659,9 @@ export function ChatView({
 
             {/* Reconnecting / Live Tracking banner */}
             {isReconnecting && (
-              <div className="max-w-2xl mx-auto px-4 w-full mb-2 animate-in fade-in slide-in-from-bottom-2 duration-200">
+              <div className="max-w-2xl mx-auto px-4 w-full mb-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
                 {isStreamingLive ? (
-                  <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs shadow-lg backdrop-blur-sm">
+                  <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs shadow-lg backdrop-blur-sm ring-1 ring-emerald-400/20">
                     <div className="relative flex h-2.5 w-2.5 shrink-0">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                       <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
@@ -1576,10 +1669,10 @@ export function ChatView({
                     <span className="flex-1 font-medium">
                       Đã kết nối lại · Đang theo dõi trực tiếp tiến trình trả lời từ VPS…
                     </span>
-                    <Loader2 size={13} className="animate-spin text-emerald-400 shrink-0" />
+                    <CircularLoader size="xs" variant="emerald" showAura={false} />
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs shadow-lg backdrop-blur-sm">
+                  <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs shadow-lg backdrop-blur-sm ring-1 ring-amber-400/20">
                     <div className="relative flex h-2.5 w-2.5 shrink-0">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
                       <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
@@ -1587,7 +1680,7 @@ export function ChatView({
                     <span className="flex-1 font-medium">
                       Mất kết nối mạng tạm thời · VPS vẫn đang sinh câu trả lời ngầm và sẽ tự động đồng bộ khi có mạng lại...
                     </span>
-                    <Loader2 size={13} className="animate-spin text-amber-400 shrink-0" />
+                    <CircularLoader size="xs" variant="amber" showAura={false} />
                   </div>
                 )}
               </div>

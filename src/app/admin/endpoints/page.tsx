@@ -19,6 +19,7 @@ const CAPS = [
   { id: "vision", label: "Đọc ảnh" },
   { id: "video", label: "Đọc video" },
   { id: "reasoning", label: "Suy luận" },
+  { id: "image_gen", label: "Tạo ảnh (Image Gen)" },
   { id: "tools", label: "Tools" },
   { id: "no_stream", label: "Non-streaming (Không stream)" },
 ];

@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   Pencil,
   Check,
+  Palette,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Conversation } from "@/types";
@@ -209,6 +210,24 @@ export function Sidebar({
             >
               <FolderKanban size={15} className="text-[#A6A49B]" />
               <span className="text-sm">Projects</span>
+            </Link>
+
+            <Link
+              href="/app/images"
+              prefetch={false}
+              onClick={onClose}
+              className={cn(
+                "flex items-center justify-between px-3 py-2 rounded-lg transition-colors hover:bg-white/[0.04] hover:text-[#ECEBE4]",
+                pathname.startsWith("/app/images") && "text-[#ECEBE4] bg-white/[0.05]"
+              )}
+            >
+              <div className="flex items-center gap-2.5">
+                <Palette size={15} className="text-[#D97757]" />
+                <span className="text-sm">Tạo ảnh</span>
+              </div>
+              <span className="text-[10px] font-medium text-[#D97757] bg-[#D97757]/10 border border-[#D97757]/20 px-1.5 py-0.5 rounded">
+                Studio
+              </span>
             </Link>
 
 

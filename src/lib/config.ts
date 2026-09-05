@@ -47,7 +47,8 @@ export type FunctionKey =
   | "vision"
   | "video"
   | "reasoning"
-  | "embeddings";
+  | "embeddings"
+  | "image_gen";
 
 export const FUNCTION_LABELS: Record<FunctionKey, string> = {
   chat_default: "Chat mặc định",
@@ -56,6 +57,7 @@ export const FUNCTION_LABELS: Record<FunctionKey, string> = {
   video: "Đọc video",
   reasoning: "Suy luận sâu (Reasoning)",
   embeddings: "Embeddings / RAG",
+  image_gen: "Tạo ảnh (Image Generation)",
 };
 
 export function isAdminEmail(email: string): boolean {

@@ -1,5 +1,6 @@
 "use client";
 import React, { useState } from "react";
+import Link from "next/link";
 import {
   Check,
   Copy,
@@ -16,6 +17,10 @@ import {
   ChevronDown,
   ChevronRight,
   Zap,
+  CornerDownLeft,
+  Sparkles,
+  Maximize2,
+  Palette,
 } from "lucide-react";
 import { Markdown } from "./Markdown";
 import { CodeBlock } from "./CodeBlock";
@@ -24,6 +29,7 @@ import { ThinkingIndicator } from "./ThinkingIndicator";
 import { ProjectZipCard } from "./ProjectZipCard";
 import { parseThinking, extractCodeBlocks, isLargeProject } from "@/lib/ai/thinking";
 import { copyText, cn } from "@/lib/utils";
+import { insertTextToComposer, extractGeneratedPrompt } from "@/lib/prompt-intent";
 import type { Message } from "@/types";
 
 function formatLatency(ms?: number): string {
@@ -272,6 +278,7 @@ export const MessageItem = React.memo(function MessageItem({
   conversationTitle,
 }: MessageItemProps) {
   const [copied, setCopied] = useState(false);
+  const [inserted, setInserted] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(message.content);
   const [feedback, setFeedback] = useState<"good" | "bad" | null>(null);
@@ -309,9 +316,50 @@ export const MessageItem = React.memo(function MessageItem({
     [isAssistant, codeFiles, parsed.content]
   );
 
+  const safeParts = React.useMemo(() => (Array.isArray(message.parts) ? message.parts : []), [message.parts]);
+  const generatedImages = React.useMemo(() => {
+    if (!isAssistant) return [];
+    const list: Array<{ url: string; fileName: string; prompt?: string; aspectRatio?: string; model?: string }> = [];
+    const seen = new Set<string>();
+
+    for (const p of safeParts) {
+      if (p && p.type === "image" && (p.url || p.fileId)) {
+        const url = p.fileId ? `/api/files/${p.fileId}` : (p.url || "");
+        if (url && !seen.has(url)) {
+          seen.add(url);
+          list.push({ url, fileName: p.fileName || "ai-generated-image.png" });
+        }
+      }
+      if (p && p.type === "tool_call" && p.toolName === "generate_image" && p.toolOutput) {
+        try {
+          const raw = p.toolOutput;
+          const parsed: Record<string, unknown> =
+            typeof raw === "object" && raw !== null
+              ? (raw as Record<string, unknown>)
+              : typeof raw === "string"
+              ? JSON.parse(raw)
+              : {};
+          if (parsed.success && (parsed.imageUrl || parsed.fileId)) {
+            const url = (parsed.fileId ? `/api/files/${parsed.fileId}` : parsed.imageUrl) as string;
+            if (url && !seen.has(url)) {
+              seen.add(url);
+              list.push({
+                url,
+                fileName: (parsed.fileName as string) || "ai-generated-image.png",
+                prompt: parsed.prompt as string | undefined,
+                aspectRatio: parsed.aspectRatio as string | undefined,
+                model: parsed.model as string | undefined,
+              });
+            }
+          }
+        } catch {}
+      }
+    }
+    return list;
+  }, [isAssistant, safeParts]);
+
   // USER MESSAGE (Claude style: right-aligned pill bubble)
   if (message.role === "user") {
-    const safeParts = Array.isArray(message.parts) ? message.parts : [];
     const seenImageKeys = new Set<string>();
     const images = safeParts.filter((p) => {
       if (!p || p.type !== "image") return false;
@@ -447,7 +495,6 @@ export const MessageItem = React.memo(function MessageItem({
   }
 
   // ASSISTANT MESSAGE (Claude style)
-  const safeParts = Array.isArray(message.parts) ? message.parts : [];
   const toolParts = safeParts.filter((p) => p && p.type === "tool_call");
   const artifactParts = safeParts.filter(
     (p) => p && p.type === "file" && Boolean(p.fileId || p.url)
@@ -460,7 +507,7 @@ export const MessageItem = React.memo(function MessageItem({
       <div
         className={cn(
           "h-8 w-8 rounded-xl bg-[#262523] border border-white/10 flex items-center justify-center shrink-0 mt-0.5 select-none shadow-xs transition-all duration-300",
-          streaming && !parsed.content && "border-[#D97757]/40 shadow-[0_0_12px_rgba(217,119,87,0.3)] ring-1 ring-[#D97757]/20"
+          streaming && (!parsed.content || !parsed.content.trim()) && "border-[#D97757]/40 shadow-[0_0_12px_rgba(217,119,87,0.3)] ring-1 ring-[#D97757]/20"
         )}
       >
         <svg
@@ -468,7 +515,7 @@ export const MessageItem = React.memo(function MessageItem({
           fill="currentColor"
           className={cn(
             "h-4.5 w-4.5 text-[#D97757] transition-all duration-300",
-            streaming && !parsed.content && "animate-spin-slow text-[#E2886A]"
+            streaming && (!parsed.content || !parsed.content.trim()) && "animate-spin-slow text-[#E2886A]"
           )}
           xmlns="http://www.w3.org/2000/svg"
         >
@@ -524,16 +571,16 @@ export const MessageItem = React.memo(function MessageItem({
           />
         )}
 
-        {parsed.content ? (
+        {parsed.content && parsed.content.trim().length > 0 ? (
           <div>
             <Markdown text={parsed.content} streaming={Boolean(streaming)} />
             {streaming && (
               <span className="inline-block w-1.5 h-4 ml-0.5 bg-[#D97757] animate-pulse align-middle rounded-xs" title="Đang sinh câu trả lời…" />
             )}
           </div>
-        ) : streaming && !parsed.isThinking ? (
+        ) : streaming ? (
           <div className="py-1">
-            <ThinkingIndicator label="Claude đang suy nghĩ…" />
+            <ThinkingIndicator label="Đang suy nghĩ & xử lý câu trả lời…" />
           </div>
         ) : !streaming && parsed.thinking ? (
           <p className="text-xs text-[#8E8B82] italic py-1">
@@ -609,6 +656,89 @@ export const MessageItem = React.memo(function MessageItem({
           </div>
         )}
 
+        {/* AI Generated Image Cards */}
+        {generatedImages.length > 0 && (
+          <div className="flex flex-col gap-3 my-3">
+            {generatedImages.map((img, idx) => (
+              <div
+                key={idx}
+                className="group/imgcard rounded-2xl bg-[#1E1D1B] border border-white/10 hover:border-[#D97757]/40 shadow-xl overflow-hidden max-w-xl transition-all duration-200"
+              >
+                {/* Image visual container */}
+                <div
+                  className="relative overflow-hidden cursor-zoom-in bg-black/40 flex items-center justify-center min-h-[220px] max-h-[500px]"
+                  onClick={() => setLightboxImg({ url: img.url, fileName: img.fileName })}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={img.url}
+                    alt={img.prompt || img.fileName}
+                    className="w-full h-auto max-h-[500px] object-contain transition-transform duration-300 group-hover/imgcard:scale-[1.01]"
+                  />
+                  {/* Overlay Badge */}
+                  <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/70 backdrop-blur-md border border-white/15 text-[11px] font-medium text-[#ECEBE4]">
+                    <Sparkles size={11} className="text-[#D97757]" />
+                    <span>AI Generated</span>
+                    {img.aspectRatio && (
+                      <span className="text-[#A6A49B] font-mono text-[10px]">· {img.aspectRatio}</span>
+                    )}
+                  </div>
+
+                  {/* Quick Expand Button */}
+                  <div className="absolute top-2.5 right-2.5 p-1.5 rounded-lg bg-black/70 backdrop-blur-md border border-white/15 text-[#ECEBE4] opacity-0 group-hover/imgcard:opacity-100 transition-opacity">
+                    <Maximize2 size={13} />
+                  </div>
+                </div>
+
+                {/* Footer Bar */}
+                <div className="p-3 bg-[#242321] border-t border-white/[0.06] flex items-center justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    {img.prompt ? (
+                      <p className="text-xs text-[#ECEBE4] line-clamp-1 italic font-sans" title={img.prompt}>
+                        “{img.prompt}”
+                      </p>
+                    ) : (
+                      <p className="text-xs text-[#ECEBE4] truncate font-mono">{img.fileName}</p>
+                    )}
+                    <p className="text-[11px] text-[#75736C] mt-0.5">
+                      {img.model ? `${img.model} · ` : ""}Nhấp vào ảnh để phóng to
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setLightboxImg({ url: img.url, fileName: img.fileName })}
+                      className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-[#A6A49B] hover:text-[#ECEBE4] hover:bg-white/[0.06] border border-white/10 transition-colors cursor-pointer"
+                      title="Xem toàn màn hình"
+                    >
+                      <Maximize2 size={13} />
+                    </button>
+                    <a
+                      href={img.url}
+                      download={img.fileName}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#D97757]/15 hover:bg-[#D97757]/25 text-[#D97757] border border-[#D97757]/30 transition-colors"
+                      title="Tải ảnh về máy"
+                    >
+                      <Download size={13} />
+                      <span className="hidden sm:inline">Tải về</span>
+                    </a>
+                    {img.prompt && (
+                      <Link
+                        href={`/app/images?prompt=${encodeURIComponent(img.prompt)}`}
+                        className="inline-flex items-center gap-1 p-1.5 rounded-lg text-xs font-medium text-[#A6A49B] hover:text-[#ECEBE4] hover:bg-white/[0.06] border border-white/10 transition-colors"
+                        title="Mở trong Studio Tạo ảnh"
+                      >
+                        <Palette size={13} className="text-[#D97757]" />
+                      </Link>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {preview && (
           <ArtifactPreviewModal
             fileName={preview.fileName}
@@ -678,6 +808,39 @@ export const MessageItem = React.memo(function MessageItem({
                     <>
                       <Copy size={12} />
                       <span>Sao chép</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  aria-label="Đưa vào ô nhập"
+                  title="Đưa prompt hoặc nội dung này vào ô chat"
+                  onClick={() => {
+                    const textToInsert =
+                      extractGeneratedPrompt(parsed.content || message.content) ||
+                      parsed.content ||
+                      message.content;
+                    insertTextToComposer(textToInsert, { focus: true });
+                    setInserted(true);
+                    setTimeout(() => setInserted(false), 2000);
+                  }}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs transition-all cursor-pointer font-sans",
+                    inserted
+                      ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-medium"
+                      : "text-[#A6A49B] hover:text-[#ECEBE4] hover:bg-white/[0.06]"
+                  )}
+                >
+                  {inserted ? (
+                    <>
+                      <Check size={12} className="text-emerald-400" />
+                      <span>Đã vào ô chat</span>
+                    </>
+                  ) : (
+                    <>
+                      <CornerDownLeft size={12} />
+                      <span>Đưa vào ô nhập</span>
                     </>
                   )}
                 </button>

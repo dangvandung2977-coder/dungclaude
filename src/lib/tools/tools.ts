@@ -16,6 +16,19 @@ export const TOOL_DEFS: GatewayTool[] = [
     description: "Tìm kiếm web. Chỉ khả dụng khi admin đã cấu hình TAVILY_API_KEY hoặc SERPER_API_KEY.",
     parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
   },
+  {
+    name: "generate_image",
+    description: "Tạo hoặc vẽ hình ảnh chất lượng cao theo mô tả của người dùng. Hãy gọi công cụ này bất cứ khi nào người dùng yêu cầu vẽ, tạo ảnh, thiết kế poster, avatar, phong cảnh, hình minh họa, v.v.",
+    parameters: {
+      type: "object",
+      properties: {
+        prompt: { type: "string", description: "Mô tả chi tiết hình ảnh cần tạo (tiếng Anh hoặc tiếng Việt)" },
+        aspectRatio: { type: "string", enum: ["1:1", "16:9", "9:16", "4:3", "3:4"], description: "Tỷ lệ khung hình mong muốn (1:1, 16:9, 9:16, 4:3, 3:4)" },
+        style: { type: "string", description: "Phong cách nghệ thuật (photographic, anime, cinematic, digital_art, cyberpunk, 3d, watercolor, minimalist)" },
+      },
+      required: ["prompt"],
+    },
+  },
 ];
 
 export function isToolEnabled(name: string, enabled: string[]): boolean {
@@ -79,6 +92,26 @@ export async function executeTool(name: string, input: unknown, ctx?: { conversa
   }
   if (name === "web_search") {
     return await webSearch(String(args.query ?? ""));
+  }
+  if (name === "generate_image") {
+    const { generateImage } = await import("@/lib/ai/image-gen");
+    const res = await generateImage({
+      prompt: String(args.prompt ?? ""),
+      aspectRatio: (args.aspectRatio as string) || "1:1",
+      style: args.style ? String(args.style) : undefined,
+      conversationId: ctx?.conversationId,
+      projectId: ctx?.projectId,
+    });
+    return JSON.stringify({
+      success: true,
+      imageUrl: res.url,
+      fileId: res.id,
+      fileName: res.fileName,
+      prompt: res.prompt,
+      aspectRatio: res.aspectRatio,
+      dimensions: `${res.width}x${res.height}`,
+      model: res.model,
+    });
   }
   throw new Error(`Unknown tool: ${name}`);
 }

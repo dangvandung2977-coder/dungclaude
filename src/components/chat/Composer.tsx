@@ -11,10 +11,12 @@ import {
   Brain,
   Zap,
   Sparkles,
+  Flame,
   ChevronDown,
   Check,
 } from "lucide-react";
 import { ModelSelector } from "./ModelSelector";
+import { CircularLoader } from "@/components/ui/CircularLoader";
 import { cn, formatBytes } from "@/lib/utils";
 import type { AIModel, ReasoningEffort } from "@/types";
 import { isReasoningModel, getDefaultReasoningEffort, REASONING_EFFORT_OPTIONS } from "@/lib/ai/reasoning";
@@ -128,6 +130,45 @@ export function Composer({
       // Ignore security/quota errors
     }
   }, [text, modelId]);
+
+  // Handle external text insertion (e.g. auto-filling generated prompt or clicking "Use Prompt")
+  useEffect(() => {
+    const handleSetText = (e: Event) => {
+      const custom = e as CustomEvent<{
+        text: string;
+        mode?: "replace" | "append";
+        focus?: boolean;
+        onlyIfEmpty?: boolean;
+      }>;
+      const detail = custom.detail;
+      if (!detail || typeof detail.text !== "string") return;
+
+      setText((prev) => {
+        if (detail.onlyIfEmpty && prev.trim().length > 0) {
+          // Do not overwrite user's in-progress typing
+          return prev;
+        }
+        if (detail.mode === "append" && prev.trim().length > 0) {
+          return `${prev}\n\n${detail.text}`;
+        }
+        return detail.text;
+      });
+
+      if (detail.focus !== false) {
+        requestAnimationFrame(() => {
+          if (taRef.current) {
+            taRef.current.focus();
+            const len = taRef.current.value.length;
+            taRef.current.setSelectionRange(len, len);
+            taRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          }
+        });
+      }
+    };
+
+    window.addEventListener("composer:set-text", handleSetText);
+    return () => window.removeEventListener("composer:set-text", handleSetText);
+  }, []);
 
   const lastPickRef = useRef<{ time: number; sig: string }>({ time: 0, sig: "" });
 
@@ -297,8 +338,8 @@ export function Composer({
             </div>
           ))}
           {uploading && (
-            <div className="flex items-center gap-2 px-3 py-1.5 text-xs bg-[#262523] border border-[#D97757]/30 rounded-lg text-[#ECEBE4] animate-pulse">
-              <div className="h-3.5 w-3.5 rounded-full border-2 border-[#D97757] border-t-transparent animate-spin" />
+            <div className="flex items-center gap-2 px-3 py-1.5 text-xs bg-[#262523] border border-[#D97757]/30 rounded-lg text-[#ECEBE4] shadow-xs">
+              <CircularLoader size="xs" variant="brand" showAura={false} />
               <span className="text-[#D97757] font-medium">Đang tải ảnh...</span>
             </div>
           )}
@@ -402,26 +443,29 @@ export function Composer({
                   title="Mức độ suy luận (Reasoning Effort)"
                   className={cn(
                     "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-all cursor-pointer select-none",
-                    activeEffort === "high"
+                    activeEffort === "max"
+                      ? "bg-rose-950/40 text-rose-300 border-rose-500/30 hover:bg-rose-900/50 hover:border-rose-500/50"
+                      : activeEffort === "high"
                       ? "bg-purple-950/40 text-purple-300 border-purple-500/30 hover:bg-purple-900/50 hover:border-purple-500/50"
                       : activeEffort === "medium"
                       ? "bg-amber-950/40 text-amber-300 border-amber-500/30 hover:bg-amber-900/50 hover:border-amber-500/50"
                       : "bg-blue-950/40 text-blue-300 border-blue-500/30 hover:bg-blue-900/50 hover:border-blue-500/50"
                   )}
                 >
-                  <Brain
-                    size={12}
-                    className={cn(
-                      activeEffort === "high"
-                        ? "text-purple-400"
-                        : activeEffort === "medium"
-                        ? "text-amber-400"
-                        : "text-blue-400"
-                    )}
-                  />
+                  {activeEffort === "max" ? (
+                    <Flame size={12} className="text-rose-400" />
+                  ) : activeEffort === "high" ? (
+                    <Sparkles size={12} className="text-purple-400" />
+                  ) : activeEffort === "medium" ? (
+                    <Brain size={12} className="text-amber-400" />
+                  ) : (
+                    <Zap size={12} className="text-blue-400" />
+                  )}
                   <span>
-                    {activeEffort === "high"
-                      ? "Effort: Cao (Max)"
+                    {activeEffort === "max"
+                      ? "Effort: Max"
+                      : activeEffort === "high"
+                      ? "Effort: Cao"
                       : activeEffort === "medium"
                       ? "Effort: Vừa"
                       : "Effort: Thấp"}
@@ -440,7 +484,7 @@ export function Composer({
                     <div className="px-3 py-1.5 text-[10px] font-semibold text-[#75736C] uppercase tracking-wider border-b border-white/[0.06] mb-1 flex items-center justify-between">
                       <span>Mức độ suy luận</span>
                       {modelId.toLowerCase().includes("glm-5.3-free") && (
-                        <span className="text-[10px] text-purple-400 font-mono">GLM 5.3 Max</span>
+                        <span className="text-[10px] text-purple-400 font-mono">GLM 5.3</span>
                       )}
                     </div>
                     <div className="space-y-0.5">
@@ -465,14 +509,18 @@ export function Composer({
                               <div
                                 className={cn(
                                   "font-medium flex items-center gap-1.5",
-                                  opt.id === "high"
+                                  opt.id === "max"
+                                    ? "text-rose-300"
+                                    : opt.id === "high"
                                     ? "text-purple-300"
                                     : opt.id === "medium"
                                     ? "text-amber-300"
                                     : "text-blue-300"
                                 )}
                               >
-                                {opt.id === "high" ? (
+                                {opt.id === "max" ? (
+                                  <Flame size={12} />
+                                ) : opt.id === "high" ? (
                                   <Sparkles size={12} />
                                 ) : opt.id === "medium" ? (
                                   <Brain size={12} />
@@ -488,7 +536,9 @@ export function Composer({
                                 size={12}
                                 className={cn(
                                   "shrink-0 ml-1.5",
-                                  opt.id === "high"
+                                  opt.id === "max"
+                                    ? "text-rose-400"
+                                    : opt.id === "high"
                                     ? "text-purple-400"
                                     : opt.id === "medium"
                                     ? "text-amber-400"

@@ -161,4 +161,64 @@ describe("Markdown → CodeBlock integration", () => {
     // Bullet point should render as <li>, not raw code
     expect(html).toContain("<li>Bullet point</li>");
   });
+
+  it("preserves markdown:prompt.md code blocks without unwrapping even with headings", () => {
+    const md = "Dưới đây là prompt:\n\n```markdown:prompt.md\n# Prompt tạo game Flappy Bird\nHãy xây dựng game Flappy Bird bằng HTML Canvas.\n```";
+    const html = renderToString(React.createElement(Markdown, { text: md }));
+    expect(html).toContain("codeblock");
+    expect(html).toContain("prompt.md");
+    expect(html).toContain("Dùng prompt");
+    expect(html).toContain("Hãy xây dựng game Flappy Bird");
+  });
+
+  it("automatically wraps loose prompt without colon (from screenshot: --- then Prompt) into a prompt.md code block", () => {
+    const loosePrompt = `Dưới đây là prompt hoàn chỉnh, bạn có thể copy và dán trực tiếp cho AI để nhận được game Flappy Bird chạy được ngay:
+
+---
+
+Prompt
+
+Hãy xây dựng game Flappy Bird hoàn chỉnh chạy trên trình duyệt web với các yêu cầu sau:
+1. Công nghệ & Cấu trúc file
+- Sử dụng HTML + CSS + JavaScript thuần
+- Vẽ game bằng HTML5 Canvas.`;
+
+    const html = renderToString(React.createElement(Markdown, { text: loosePrompt }));
+    expect(html).toContain("codeblock");
+    expect(html).toContain("prompt.md");
+    expect(html).toContain("Dùng prompt");
+    expect(html).toContain("Hãy xây dựng game Flappy Bird");
+    expect(html).toContain("Dưới đây là prompt hoàn chỉnh");
+  });
+
+  it("automatically wraps start/end marker format (e.g. ▶️ PROMPT BẮT ĐẦU ... ⏹️ PROMPT KẾT THÚC) into prompt.md code block", () => {
+    const raw = `Bạn hãy copy từ "PROMPT BẮT ĐẦU" đến "PROMPT KẾT THÚC" và dán vào AI:
+
+---
+
+▶️ PROMPT BẮT ĐẦU
+
+Vai trò
+
+Bạn là lập trình viên game front-end giàu kinh nghiệm, chuyên về HTML5 Canvas và JavaScript thuần (Vanilla JS). Bạn không dùng bất kỳ framework hay thư viện ngoài nào.
+
+Mục tiêu
+
+Xây dựng game Flappy Bird hoàn chỉnh, chơi trực tiếp trên trình duyệt, đồ họa mượt, chơi tốt trên cả desktop và mobile.
+
+Công nghệ bắt buộc
+
+⏹️ PROMPT KẾT THÚC
+
+Chúc bạn tạo game thành công!`;
+
+    const html = renderToString(React.createElement(Markdown, { text: raw }));
+    expect(html).toContain("codeblock");
+    expect(html).toContain("prompt.md");
+    expect(html).toContain("Dùng prompt");
+    expect(html).toContain("Bạn là lập trình viên game front-end");
+    expect(html).toContain("Xây dựng game Flappy Bird");
+    expect(html).toContain("dán vào AI");
+    expect(html).toContain("Chúc bạn tạo game thành công");
+  });
 });

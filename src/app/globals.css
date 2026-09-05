@@ -560,3 +560,57 @@ body {
 .animate-spin-slow {
   animation: spin-slow 12s linear infinite;
 }
+
+/* ── Glowing Orbital Spinner Animations ── */
+@keyframes orbital-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes counter-spin {
+  0% { transform: rotate(360deg); }
+  100% { transform: rotate(0deg); }
+}
+
+@keyframes orbital-dash {
+  0% {
+    stroke-dasharray: 1, 150;
+    stroke-dashoffset: 0;
+  }
+  50% {
+    stroke-dasharray: 90, 150;
+    stroke-dashoffset: -35;
+  }
+  100% {
+    stroke-dasharray: 90, 150;
+    stroke-dashoffset: -125;
+  }
+}
+
+@keyframes glow-breathe {
+  0%, 100% {
+    opacity: 0.35;
+    transform: scale(0.94);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.08);
+  }
+}
+
+.animate-orbital-spin {
+  animation: orbital-spin 1.2s linear infinite;
+}
+
+.animate-counter-spin {
+  animation: counter-spin 2.4s linear infinite;
+}
+
+.animate-orbital-dash {
+  animation: orbital-dash 1.4s ease-in-out infinite;
+}
+
+.animate-glow-breathe {
+  animation: glow-breathe 2s ease-in-out infinite;
+}
+

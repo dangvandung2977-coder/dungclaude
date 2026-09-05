@@ -21,7 +21,7 @@ export interface OptimizeInput {
   conversationId: string;
   history: Message[]; // persisted messages, chronological (before current)
   currentMessage: string;
-  system: { base: string; userPrompt?: string; projectInstructions?: string };
+  system: { base: string | ((model: AIModel) => string); userPrompt?: string; projectInstructions?: string };
   attachmentsCount: number;
   toolsEnabled: boolean;
   models: AIModel[]; // enabled/available models
@@ -142,9 +142,25 @@ export async function optimizeContext(input: OptimizeInput): Promise<OptimizeOut
 
   const memoriesUsed = globalMemories.length + projectMemories.length + uniqueSemantic.length;
 
-  // 6. Build cached system (stable first, dynamic after)
+  // 6. Model routing (auto or explicit) — needs models with metadata
+  const routed = routeModel({
+    models: input.models,
+    taskClass,
+    settings,
+    estInputTokens: historyTokens + 500,
+    estOutputTokens: estimateOutputTokens(taskClass, settings),
+    explicitModelId: input.explicitModelId,
+  });
+  const model = input.models.find((m) => m.id === routed.modelId)
+    ?? input.models[0] ?? { id: "demo:lumen-echo", contextWindow: 128000, capabilities: ["chat"], inputPricePerM: 0, outputPricePerM: 0, provider: "demo", enabled: false, requiresKey: false } as AIModel;
+
+  const resolvedBaseSystem = typeof input.system.base === "function"
+    ? input.system.base(model)
+    : input.system.base;
+
+  // 7. Build cached system (stable first, dynamic after)
   const { system, stablePrefix } = buildCachedSystem({
-    baseSystem: input.system.base,
+    baseSystem: resolvedBaseSystem,
     userSystemPrompt: input.system.userPrompt ?? "",
     projectInstructions: input.system.projectInstructions ?? "",
     userMemory: userMemoryText,
@@ -153,18 +169,6 @@ export async function optimizeContext(input: OptimizeInput): Promise<OptimizeOut
     semanticMemory,
     ragContext,
   }, settings);
-
-  // 7. Model routing (auto or explicit) — needs models with metadata
-  const routed = routeModel({
-    models: input.models,
-    taskClass,
-    settings,
-    estInputTokens: historyTokens + estimateTokens(system),
-    estOutputTokens: estimateOutputTokens(taskClass, settings),
-    explicitModelId: input.explicitModelId,
-  });
-  const model = input.models.find((m) => m.id === routed.modelId)
-    ?? input.models[0] ?? { id: "demo:lumen-echo", contextWindow: 128000, capabilities: ["chat"], inputPricePerM: 0, outputPricePerM: 0, provider: "demo", enabled: false, requiresKey: false } as AIModel;
 
   // 8. Budget with reserves → selection
   const toolsReserve = input.toolsEnabled ? TOOLS_TOKEN_EST : 0;
@@ -192,7 +196,7 @@ export async function optimizeContext(input: OptimizeInput): Promise<OptimizeOut
     finalMsgs = rec.msgs;
     // rebuild system without dropped parts
     const rebuilt = buildCachedSystem({
-      baseSystem: input.system.base,
+      baseSystem: resolvedBaseSystem,
       userSystemPrompt: input.system.userPrompt ?? "",
       projectInstructions: input.system.projectInstructions ?? "",
       summary: rec.summaryText,

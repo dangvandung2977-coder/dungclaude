@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Image as ImageIcon, Film, MessageSquare, Zap, Brain, Database } from "lucide-react";
+import { Image as ImageIcon, Film, MessageSquare, Zap, Brain, Database, Palette } from "lucide-react";
 import { Toggle } from "@/components/ui/primitives";
 import { FUNCTION_LABELS, type FunctionKey } from "@/lib/config";
 import type { AIModel } from "@/types";
@@ -13,6 +13,7 @@ const FUNC_ICON: Record<string, React.ReactNode> = {
   video: <Film size={15} />,
   reasoning: <Brain size={15} />,
   embeddings: <Database size={15} />,
+  image_gen: <Palette size={15} className="text-rose-400" />,
 };
 
 export default function AdminModelsPage() {

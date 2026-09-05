@@ -3,8 +3,9 @@
 // horizontal-only code scrolling, collapse for long files, low-saturation theme.
 // Streaming-safe: renders plain text while streaming, highlights once when stable.
 import React, { useMemo, useState } from "react";
-import { Check, Copy, ChevronDown, ChevronUp, WrapText, Download as DownloadIcon } from "lucide-react";
+import { Check, Copy, ChevronDown, ChevronUp, WrapText, Download as DownloadIcon, CornerDownLeft } from "lucide-react";
 import { copyText, cn } from "@/lib/utils";
+import { insertTextToComposer } from "@/lib/prompt-intent";
 
 const LANG_EXT: Record<string, string> = {
   typescript: "ts", javascript: "js", tsx: "tsx", jsx: "jsx",
@@ -31,6 +32,7 @@ export const CodeBlock = React.memo(function CodeBlock({
   code, language, filename, streaming = false, children,
 }: CodeBlockProps) {
   const [copied, setCopied] = useState(false);
+  const [inserted, setInserted] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [wrap, setWrap] = useState(false);
 
@@ -43,6 +45,23 @@ export const CodeBlock = React.memo(function CodeBlock({
     : lines;
   const gutterWidth = total >= 1000 ? "3.5rem" : total >= 100 ? "2.75rem" : "2.25rem";
 
+  const isPrompt = useMemo(() => {
+    const l = (language || "").toLowerCase().trim();
+    if (l === "prompt" || l === "systemprompt") return true;
+    const f = (filename || "").toLowerCase();
+    if (
+      f === "prompt.md" ||
+      f === "prompt.txt" ||
+      f === "prompt" ||
+      f.endsWith("/prompt.md") ||
+      f.endsWith("\\prompt.md") ||
+      f.includes("prompt")
+    ) {
+      return true;
+    }
+    return false;
+  }, [language, filename]);
+
   const isPython = useMemo(() => {
     const l = (language || "").toLowerCase().trim();
     if (l === "python" || l === "py" || l === "python3" || l === "py3") return true;
@@ -50,12 +69,17 @@ export const CodeBlock = React.memo(function CodeBlock({
   }, [language, safeCode]);
 
   const ext = useMemo(() => {
+    if (filename) {
+      const dot = filename.lastIndexOf(".");
+      if (dot !== -1) return filename.slice(dot + 1);
+    }
+    if (isPrompt) return "md";
     if (isPython) return "py";
     const l = (language || "").toLowerCase().trim();
     return LANG_EXT[l] ?? (l || "txt");
-  }, [isPython, language]);
+  }, [filename, isPrompt, isPython, language]);
 
-  const displayName = filename ?? (isPython ? "PYTHON" : language.toUpperCase());
+  const displayName = filename ?? (isPrompt ? "prompt.md" : isPython ? "PYTHON" : language.toUpperCase());
 
   const highlightedLines: React.ReactNode[][] | null =
     !streaming && React.isValidElement(children)
@@ -124,6 +148,36 @@ export const CodeBlock = React.memo(function CodeBlock({
               <>
                 <Copy size={12} />
                 <span className="hidden sm:inline">Sao chép</span>
+              </>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              insertTextToComposer(code, { focus: true });
+              setInserted(true);
+              setTimeout(() => setInserted(false), 1600);
+            }}
+            aria-label="Đưa vào ô nhập"
+            title={isPrompt ? "Đưa đoạn prompt này vào ô chat" : "Đưa mã vào ô chat"}
+            className={cn(
+              "inline-flex items-center gap-1 px-1.5 py-1 rounded-[5px] text-[11px] transition-colors cursor-pointer",
+              inserted
+                ? "text-emerald-400 bg-emerald-500/15 font-medium"
+                : isPrompt
+                ? "text-[#D97757] bg-[#D97757]/10 hover:bg-[#D97757]/20 font-medium"
+                : "text-[var(--text-3)] hover:text-[var(--text-2)] hover:bg-[var(--cb-btn-hover)]"
+            )}
+          >
+            {inserted ? (
+              <>
+                <Check size={12} className="text-emerald-400" />
+                <span className="text-emerald-400">Đã vào ô chat</span>
+              </>
+            ) : (
+              <>
+                <CornerDownLeft size={12} className={isPrompt ? "text-[#D97757]" : undefined} />
+                <span className="hidden sm:inline">{isPrompt ? "Dùng prompt" : "Đưa vào ô nhập"}</span>
               </>
             )}
           </button>
@@ -202,7 +256,7 @@ export const CodeBlock = React.memo(function CodeBlock({
         name = filename;
       }
     } else {
-      name = isPython ? "main.py" : `snippet.${ext}`;
+      name = isPython ? "main.py" : isPrompt ? "prompt.md" : `snippet.${ext}`;
     }
     const blob = new Blob([code], { type: isPython ? "text/x-python;charset=utf-8" : "text/plain;charset=utf-8" });
     const a = document.createElement("a");
