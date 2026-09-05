@@ -18,6 +18,19 @@ describe("Image Generation Intent Recognition in Chat", () => {
     const res4 = isImageGenerationRequest("sinh ảnh phong cảnh cyberpunk về đêm");
     expect(res4.isImage).toBe(true);
     expect(res4.prompt.toLowerCase()).toContain("cyberpunk");
+
+    // Exact user query from conversation
+    const res5 = isImageGenerationRequest("tạo cho t hình ảnh về một con chó đang bay trên trời cùng máy bay");
+    expect(res5.isImage).toBe(true);
+    expect(res5.prompt.toLowerCase()).toContain("chó đang bay");
+
+    const res6 = isImageGenerationRequest("vẽ cho tao con mèo máy");
+    expect(res6.isImage).toBe(true);
+    expect(res6.prompt.toLowerCase()).toContain("mèo máy");
+
+    const res7 = isImageGenerationRequest("làm cho mk cái ảnh avatar phi hành gia");
+    expect(res7.isImage).toBe(true);
+    expect(res7.prompt.toLowerCase()).toContain("phi hành gia");
   });
 
   it("detects slash commands", () => {
@@ -36,7 +49,7 @@ describe("Image Generation Intent Recognition in Chat", () => {
     expect(res2.prompt.toLowerCase()).toContain("medieval castle");
   });
 
-  it("does not trigger on regular chat or code queries", () => {
+  it("does not trigger on regular chat, code queries, or prompt writing requests", () => {
     const res1 = isImageGenerationRequest("hãy viết cho tôi một bài thơ về mùa thu");
     expect(res1.isImage).toBe(false);
 
@@ -45,5 +58,11 @@ describe("Image Generation Intent Recognition in Chat", () => {
 
     const res3 = isImageGenerationRequest("bạn là ai và có thể làm được gì?");
     expect(res3.isImage).toBe(false);
+
+    const res4 = isImageGenerationRequest("viết prompt tạo ảnh con chó");
+    expect(res4.isImage).toBe(false);
+
+    const res5 = isImageGenerationRequest("hướng dẫn tạo ảnh bằng AI");
+    expect(res5.isImage).toBe(false);
   });
 });

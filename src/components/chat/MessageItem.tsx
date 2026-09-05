@@ -27,6 +27,7 @@ import { CodeBlock } from "./CodeBlock";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 import { ProjectZipCard } from "./ProjectZipCard";
+import { ImageGeneratingCard } from "./ImageGeneratingCard";
 import { parseThinking, extractCodeBlocks, isLargeProject } from "@/lib/ai/thinking";
 import { copyText, cn } from "@/lib/utils";
 import { insertTextToComposer, extractGeneratedPrompt } from "@/lib/prompt-intent";
@@ -317,6 +318,12 @@ export const MessageItem = React.memo(function MessageItem({
   );
 
   const safeParts = React.useMemo(() => (Array.isArray(message.parts) ? message.parts : []), [message.parts]);
+  const generatingImagePart = React.useMemo(() => {
+    if (!isAssistant) return null;
+    return safeParts.find(
+      (p) => p && p.type === "image" && p.status === "running"
+    );
+  }, [isAssistant, safeParts]);
   const generatedImages = React.useMemo(() => {
     if (!isAssistant) return [];
     const list: Array<{ url: string; fileName: string; prompt?: string; aspectRatio?: string; model?: string }> = [];
@@ -580,7 +587,9 @@ export const MessageItem = React.memo(function MessageItem({
           </div>
         ) : streaming ? (
           <div className="py-1">
-            <ThinkingIndicator label="Đang suy nghĩ & xử lý câu trả lời…" />
+            <ThinkingIndicator
+              label={generatingImagePart ? "Đang phác thảo và tạo hình ảnh AI…" : "Đang suy nghĩ & xử lý câu trả lời…"}
+            />
           </div>
         ) : !streaming && parsed.thinking ? (
           <p className="text-xs text-[#8E8B82] italic py-1">
@@ -593,6 +602,11 @@ export const MessageItem = React.memo(function MessageItem({
           <div className="mt-3">
             <ProjectZipCard files={codeFiles} title={conversationTitle || "project"} />
           </div>
+        )}
+
+        {/* AI Image Generation In-Progress Loading Screen Card */}
+        {generatingImagePart && generatedImages.length === 0 && (
+          <ImageGeneratingCard prompt={generatingImagePart.fileName} />
         )}
 
         {/* Artifact cards — real generated files (docx/pptx/xlsx/pdf/md) */}

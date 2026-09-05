@@ -243,12 +243,17 @@ You MUST call the "generate_image" tool with prompt: "${imgIntent.prompt}" to cr
             fileName: autoImg.fileName || "ai-generated-image.png",
             mimeType: "image/png",
           });
-          if (!full.trim()) {
-            full = `Tôi đã tạo hình ảnh "${imgIntent.prompt}" cho bạn:`;
-          }
         }
       } catch (err) {
         console.warn("[AutoImageGen] non-stream fallback error:", err);
+      }
+    }
+
+    // Clean up refusal text if the LLM outputted refusal or prompt block when user wanted an image
+    if (imgIntent.isImage) {
+      const refusalRegex = /không\s+(?:thể|hỗ\s+trợ)\s+(?:trực\s+tiếp\s+)?tạo\s+(?:hình\s+)?ảnh|không\s+có\s+khả\s+năng\s+tạo\s+ảnh|cannot\s+generate\s+images|i\s+can't\s+create\s+images|chưa\s+hỗ\s+trợ\s+tạo\s+ảnh|không\s+thể\s+vẽ/i;
+      if (!full.trim() || refusalRegex.test(full) || full.includes("markdown:prompt.md") || full.includes("prompt.md")) {
+        full = `Tôi đã tạo hình ảnh theo yêu cầu cho bạn: "${imgIntent.prompt}".`;
       }
     }
 

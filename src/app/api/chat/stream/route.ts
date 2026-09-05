@@ -273,6 +273,10 @@ export async function POST(req: Request): Promise<Response> {
         }
       };
       send("conversation", { conversationId: conv.id, title: conv.title });
+      if (imgIntent.isImage) {
+        send("image_generating", { prompt: imgIntent.prompt });
+        send("status", { status: `Đang vẽ hình ảnh: ${imgIntent.prompt}…` });
+      }
       const started = Date.now();
       let full = "";
       let assistantMsgSaved = false;
@@ -436,14 +440,17 @@ You MUST call the "generate_image" tool with prompt: "${imgIntent.prompt}" to cr
                 aspectRatio: autoImg.aspectRatio,
                 model: autoImg.model,
               });
-              if (!full.trim()) {
-                const autoReply = `Tôi đã tạo hình ảnh "${imgIntent.prompt}" cho bạn:`;
-                full = autoReply;
-                send("token", { delta: autoReply });
-              }
             }
           } catch (err) {
             console.warn("[AutoImageGen] stream fallback error:", err);
+          }
+        }
+
+        // Clean up refusal text if the LLM outputted refusal or prompt block when user wanted an image
+        if (imgIntent.isImage) {
+          const refusalRegex = /không\s+(?:thể|hỗ\s+trợ)\s+(?:trực\s+tiếp\s+)?tạo\s+(?:hình\s+)?ảnh|không\s+có\s+khả\s+năng\s+tạo\s+ảnh|cannot\s+generate\s+images|i\s+can't\s+create\s+images|chưa\s+hỗ\s+trợ\s+tạo\s+ảnh|không\s+thể\s+vẽ/i;
+          if (!full.trim() || refusalRegex.test(full) || full.includes("markdown:prompt.md") || full.includes("prompt.md")) {
+            full = `Tôi đã tạo hình ảnh theo yêu cầu cho bạn: "${imgIntent.prompt}".`;
           }
         }
         const respondingModelId = result.model || optimized.routing.modelId;

@@ -11,7 +11,6 @@ import {
   Trash2,
   Sparkles,
   Check,
-  Loader2,
 } from "lucide-react";
 import { CircularLoader } from "@/components/ui/CircularLoader";
 import Link from "next/link";
@@ -24,6 +23,7 @@ import { useSession } from "@/hooks/useSession";
 import { cn } from "@/lib/utils";
 import { getDefaultReasoningEffort } from "@/lib/ai/reasoning";
 import { isPromptCreationRequest, extractGeneratedPrompt, insertTextToComposer } from "@/lib/prompt-intent";
+import { isImageGenerationRequest } from "@/lib/ai/image-intent";
 
 function formatSize(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -1095,6 +1095,31 @@ export function ChatView({
                 ];
               });
               acc = `Tôi đã tạo thành công file **${j.fileName}** (${formatSize(j.sizeBytes ?? 0)}) dựa trên dữ liệu cuộc trò chuyện:`;
+            } else if (type === "image_generating") {
+              setMessages((s) => {
+                const idx = s.findIndex((m) => m.id === currentAsstId);
+                if (idx === -1) return s;
+                const target = s[idx];
+                const parts = target.parts || [];
+                if (parts.some((p) => p.type === "image" && p.status === "running")) {
+                  return s;
+                }
+                const genPart = {
+                  id: `img_gen_${Date.now()}`,
+                  type: "image" as const,
+                  status: "running" as const,
+                  fileName: j.prompt || "Đang tạo ảnh…",
+                  url: "",
+                };
+                return [
+                  ...s.slice(0, idx),
+                  {
+                    ...target,
+                    parts: [...parts, genPart],
+                  },
+                  ...s.slice(idx + 1),
+                ];
+              });
             } else if (type === "image_generated") {
               setMessages((s) => {
                 const idx = s.findIndex((m) => m.id === currentAsstId);
@@ -1103,16 +1128,21 @@ export function ChatView({
                 const newPart = {
                   id: `img_${Date.now()}`,
                   type: "image" as const,
+                  status: "success" as const,
                   url: j.url,
                   fileId: j.fileId,
                   fileName: j.fileName || "ai-generated-image.png",
                   mimeType: "image/png",
                 };
+                // Clean up any running image placeholders
+                const filteredParts = (target.parts || []).filter(
+                  (p) => !(p.type === "image" && p.status === "running")
+                );
                 return [
                   ...s.slice(0, idx),
                   {
                     ...target,
-                    parts: [...(target.parts || []), newPart],
+                    parts: [...filteredParts, newPart],
                   },
                   ...s.slice(idx + 1),
                 ];
@@ -1152,8 +1182,9 @@ export function ChatView({
                         id: finalId,
                         content: finalContent,
                         latencyMs: finalLatency,
-                        status: "completed" as const,
-                        ...(Array.isArray(j.parts) && j.parts.length > 0 ? { parts: j.parts } : {}),
+                        parts: (Array.isArray(j.parts) && j.parts.length > 0 ? (j.parts as Message["parts"]) : m.parts || []).filter(
+                          (p) => !(p.type === "image" && p.status === "running")
+                        ),
                       }
                     : m
                 )
@@ -1314,6 +1345,19 @@ export function ChatView({
       createdAt: new Date().toISOString(),
     };
 
+    // Check if this message is requesting an image
+    const isImageReq = isImageGenerationRequest(text);
+    const initialParts: Message["parts"] = [{ id: `ta_${Date.now()}`, type: "text", text: "" }];
+    if (isImageReq.isImage) {
+      initialParts.push({
+        id: `img_gen_${Date.now()}`,
+        type: "image",
+        status: "running",
+        fileName: isImageReq.prompt,
+        url: "",
+      });
+    }
+
     // Optimistic assistant placeholder
     const tempAsst: Message = {
       id: asstId,
@@ -1322,7 +1366,7 @@ export function ChatView({
       content: "",
       status: "streaming",
       modelId: modelId === "auto" ? undefined : modelId,
-      parts: [{ id: `ta_${Date.now()}`, type: "text", text: "" }],
+      parts: initialParts,
       createdAt: new Date().toISOString(),
     };
 
