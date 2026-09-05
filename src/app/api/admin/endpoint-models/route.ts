@@ -5,7 +5,7 @@ import { createCustomModel, updateCustomModel, deleteCustomModel, listCustomMode
 
 export const runtime = "nodejs";
 
-const CAPS = ["chat", "vision", "video", "reasoning", "tools"] as const;
+const CAPS = ["chat", "vision", "video", "reasoning", "image_gen", "tools", "no_stream"] as const;
 
 const createSchema = z.object({
   endpointId: z.string().min(1),

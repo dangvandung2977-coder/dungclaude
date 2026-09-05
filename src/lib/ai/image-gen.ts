@@ -210,14 +210,22 @@ export async function generateImage(params: ImageGenParams): Promise<GeneratedIm
   if (ref.provider === "custom" && ref.endpointId) {
     try {
       const cred = await getEndpointCredentials(ref.endpointId);
-      if (cred && cred.enabled && cred.key) {
-        const url = `${cred.baseUrl.replace(/\/$/, "")}/images/generations`;
+      if (cred && cred.enabled) {
+        const cleanBase = cred.baseUrl.replace(/\/$/, "");
+        const url = cleanBase.endsWith("/images/generations")
+          ? cleanBase
+          : `${cleanBase}/images/generations`;
+
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+        };
+        if (cred.key) {
+          headers["Authorization"] = `Bearer ${cred.key}`;
+        }
+
         const resp = await fetch(url, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${cred.key}`,
-          },
+          headers,
           body: JSON.stringify({
             prompt: fullPrompt,
             model: ref.model,
@@ -235,6 +243,12 @@ export async function generateImage(params: ImageGenParams): Promise<GeneratedIm
           } else if (item?.url) {
             const dl = await fetch(item.url);
             if (dl.ok) imageBuffer = Buffer.from(await dl.arrayBuffer());
+          } else if (typeof json.images?.[0] === "string") {
+            const b64 = json.images[0].replace(/^data:image\/\w+;base64,/, "");
+            imageBuffer = Buffer.from(b64, "base64");
+          } else if (typeof json.output?.[0] === "string") {
+            const b64 = json.output[0].replace(/^data:image\/\w+;base64,/, "");
+            imageBuffer = Buffer.from(b64, "base64");
           }
         } else {
           console.warn(`[ImageGen] Custom endpoint error: ${resp.status} ${await resp.text().catch(() => "")}`);
