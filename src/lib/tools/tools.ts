@@ -18,7 +18,7 @@ export const TOOL_DEFS: GatewayTool[] = [
   },
   {
     name: "generate_image",
-    description: "Tạo hoặc vẽ hình ảnh chất lượng cao theo mô tả của người dùng. Hãy gọi công cụ này bất cứ khi nào người dùng yêu cầu vẽ, tạo ảnh, thiết kế poster, avatar, phong cảnh, hình minh họa, v.v.",
+    description: "Tạo hoặc vẽ hình ảnh chất lượng cao theo mô tả của người dùng. QUAN TRỌNG: Chỉ gọi công cụ này khi người dùng THỰC SỰ muốn vẽ hoặc tạo ra bức tranh/hình ảnh trực tiếp. TUYỆT ĐỐI KHÔNG gọi công cụ này khi người dùng yêu cầu VIẾT PROMPT, TẠO PROMPT, HOẶC SOẠN CÂU LỆNH TẠO ẢNH (ví dụ: 'viết prompt tạo ảnh...', 'cho xin prompt vẽ...', 'tạo prompt Midjourney...'). Khi người dùng hỏi hoặc yêu cầu prompt, bạn phải viết nội dung prompt vào file prompt.md theo quy tắc viết prompt, KHÔNG được gọi công cụ tạo ảnh này.",
     parameters: {
       type: "object",
       properties: {

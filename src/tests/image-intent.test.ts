@@ -62,6 +62,12 @@ describe("Image Generation Intent Recognition in Chat", () => {
     const res4 = isImageGenerationRequest("viết prompt tạo ảnh con chó");
     expect(res4.isImage).toBe(false);
 
+    expect(isImageGenerationRequest("viết prompt tạo ảnh").isImage).toBe(false);
+    expect(isImageGenerationRequest("tạo prompt tạo ảnh con mèo").isImage).toBe(false);
+    expect(isImageGenerationRequest("viết cho tao prompt vẽ tranh").isImage).toBe(false);
+    expect(isImageGenerationRequest("prompt vẽ ảnh phi hành gia").isImage).toBe(false);
+    expect(isImageGenerationRequest("cho tao pormpt tạo ảnh").isImage).toBe(false);
+
     const res5 = isImageGenerationRequest("hướng dẫn tạo ảnh bằng AI");
     expect(res5.isImage).toBe(false);
   });

@@ -218,7 +218,8 @@ export async function POST(req: Request): Promise<Response> {
   const prj = await projectPromise;
   if (prj?.instructions) projectInstructions = `[Project instructions — always follow]:\n${prj.instructions}`;
 
-  const imgIntent = isImageGenerationRequest(body.content);
+  const isPromptReq = isPromptCreationRequest(body.content);
+  const imgIntent = isPromptReq ? { isImage: false, prompt: "" } : isImageGenerationRequest(body.content);
   let enabledToolNames: string[] = ["calculator", "file_search", "generate_image", "create_document"];
   if (Array.isArray(body.tools)) {
     enabledToolNames = body.tools;
@@ -231,7 +232,9 @@ export async function POST(req: Request): Promise<Response> {
     if (tObj.generateImage !== false) enabledToolNames.push("generate_image");
     if (tObj.createDocument !== false) enabledToolNames.push("create_document");
   }
-  if (imgIntent.isImage && !enabledToolNames.includes("generate_image")) {
+  if (isPromptReq) {
+    enabledToolNames = enabledToolNames.filter((name) => name !== "generate_image");
+  } else if (imgIntent.isImage && !enabledToolNames.includes("generate_image")) {
     enabledToolNames.push("generate_image");
   }
   const enabledTools = TOOL_DEFS.filter((t) => enabledToolNames.includes(t.name));
@@ -295,7 +298,7 @@ export async function POST(req: Request): Promise<Response> {
             : "Đang suy nghĩ…",
         });
 
-        const promptEnforcement = isPromptCreationRequest(body.content)
+        const promptEnforcement = isPromptReq
           ? `\n\n[MANDATORY PROMPT FORMATTING — CHATGPT STYLE SEPARATION]:
 The user requested a prompt. Follow the standard ChatGPT layout with CLEAR SEPARATION:
 1. OUTSIDE BEFORE THE BOX: Brief conversational intro (e.g. "Dưới đây là prompt bạn có thể sử dụng:").

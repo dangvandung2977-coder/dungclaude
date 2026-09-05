@@ -153,7 +153,8 @@ export async function POST(req: Request): Promise<Response> {
   const toolEvents: Array<{ id: string; name: string; input: unknown; output: string }> = [];
 
   try {
-    const promptEnforcement = isPromptCreationRequest(body.content)
+    const isPromptReq = isPromptCreationRequest(body.content);
+    const promptEnforcement = isPromptReq
       ? `\n\n[MANDATORY PROMPT FORMATTING — CHATGPT STYLE SEPARATION]:
 The user requested a prompt. Follow the standard ChatGPT layout with CLEAR SEPARATION:
 1. OUTSIDE BEFORE THE BOX: Brief conversational intro (e.g. "Dưới đây là prompt bạn có thể sử dụng:").
@@ -167,14 +168,17 @@ The user requested a prompt. Follow the standard ChatGPT layout with CLEAR SEPAR
 3. OUTSIDE AFTER THE BOX: Provide any usage tips, explanations, or parameter customization instructions in normal Markdown text OUTSIDE and below the code block.`
       : "";
 
-    const imgIntent = isImageGenerationRequest(body.content);
+    const imgIntent = isPromptReq ? { isImage: false, prompt: "" } : isImageGenerationRequest(body.content);
     const imageGenGuidance = imgIntent.isImage
       ? `\n\n[CRITICAL IMAGE GENERATION INSTRUCTION]:
 The user requests creating, generating, or drawing an image based on: "${imgIntent.prompt}".
 You MUST carefully read the conversation context and synthesize a rich, high-quality, professional English visual prompt (describing subject, style, lighting, camera angle, atmosphere, and fine details), and call the "generate_image" tool with this synthesized prompt to produce the image.`
       : "";
 
-    const enabledTools = TOOL_DEFS.filter((t) => ["calculator", "file_search", "generate_image", "create_document"].includes(t.name));
+    const enabledTools = TOOL_DEFS.filter((t) => {
+      if (isPromptReq && t.name === "generate_image") return false;
+      return ["calculator", "file_search", "generate_image", "create_document"].includes(t.name);
+    });
 
     const result = await runGateway({
       modelId: optimized.routing.modelId,

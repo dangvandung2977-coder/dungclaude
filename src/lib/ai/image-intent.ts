@@ -75,14 +75,12 @@ export function isImageGenerationRequest(content: string): ImageIntentResult {
 
   const plain = stripAccents(raw.toLowerCase());
 
-  // Disqualifications: Asking specifically to write a prompt, asking code, or explanation
-  const isPromptRequest =
-    /\b(viet|soan|goi y|cho xin|xin|tao|lam)\s+(?:mot\s+)?(?:prompt|cau lenh)\b/i.test(plain) ||
-    /\b(prompt|cau lenh)\s+(?:ve|tao anh|chup anh|midjourney|flux|dall-e|sdxl)/i.test(plain);
+  // Disqualifications: If user asks for a prompt, câu lệnh, code, or explanation
+  const hasPromptKeyword = /\b(prompt|prompts|pormpt|promt|promp|cau lenh|câu lệnh)\b/i.test(plain);
   const isQuestionOrCode =
     /\b(la gi|the nao|nhu the nao|huong dan|cach|huong dan cach|viet code|code|lap trinh|api|thu vien)\s+(?:ve|tao anh|sinh anh|image)/i.test(plain);
 
-  if (isPromptRequest || isQuestionOrCode) {
+  if (hasPromptKeyword || isQuestionOrCode) {
     return { isImage: false, prompt: "" };
   }
 
