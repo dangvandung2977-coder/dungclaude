@@ -257,10 +257,12 @@ function autoBoxLoosePrompts(text: string): string {
 
 export const Markdown = React.memo(function Markdown({ text, streaming = false }: MarkdownProps) {
   const cleanText = React.useMemo(() => {
+    // While streaming, do NOT unwrap or auto-box partial text — keep rendering 100% stable
+    if (streaming) return text;
     const unwrapped = unwrapDocumentFences(text);
     const repaired = repairNestedPromptFences(unwrapped);
     return autoBoxLoosePrompts(repaired);
-  }, [text]);
+  }, [text, streaming]);
 
   return (
     <div className="md-body select-text">

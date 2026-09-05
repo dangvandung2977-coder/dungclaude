@@ -39,7 +39,8 @@ export const CodeBlock = React.memo(function CodeBlock({
   const safeCode = code || "";
   const lines = useMemo(() => safeCode.replace(/\n$/, "").split("\n"), [safeCode]);
   const total = lines.length;
-  const collapsible = total > COLLAPSE_LINES;
+  // While streaming, NEVER collapse the block. Collapsing cuts off live code at line 120 and shakes the container.
+  const collapsible = !streaming && total > COLLAPSE_LINES;
   const visibleLines = collapsible && !expanded
     ? lines.slice(0, COLLAPSE_LINES)
     : lines;
@@ -85,13 +86,6 @@ export const CodeBlock = React.memo(function CodeBlock({
     !streaming && React.isValidElement(children)
       ? splitHighlighted(children as React.ReactElement<{ children?: React.ReactNode }>)
       : null;
-
-  const codeScrollRef = React.useRef<HTMLDivElement>(null);
-  React.useEffect(() => {
-    if (streaming && codeScrollRef.current) {
-      codeScrollRef.current.scrollTop = codeScrollRef.current.scrollHeight;
-    }
-  }, [code, streaming]);
 
   return (
     <div className="codeblock my-3.5 rounded-lg overflow-hidden border border-[var(--cb-border)] bg-[var(--cb-bg)]">
@@ -195,8 +189,10 @@ export const CodeBlock = React.memo(function CodeBlock({
 
       {/* Body: gutter + code — gutter stays fixed while code scrolls horizontally */}
       <div
-        ref={codeScrollRef}
-        className="relative font-mono text-[13px] leading-[1.6] overflow-x-auto overflow-y-auto thin-scroll max-h-[600px] cb-scroll"
+        className={cn(
+          "relative font-mono text-[13px] leading-[1.6] overflow-x-auto thin-scroll cb-scroll",
+          streaming ? "overflow-y-visible" : "overflow-y-auto max-h-[600px]"
+        )}
         tabIndex={0}
         role="region"
         aria-label={`Khối mã ${displayName}`}
@@ -205,7 +201,7 @@ export const CodeBlock = React.memo(function CodeBlock({
           {/* Gutter */}
           <div
             aria-hidden="true"
-            className="sticky left-0 z-10 shrink-0 select-none text-right bg-[var(--cb-bg)] pr-3 pl-4 border-r border-[var(--cb-gutter-border)] text-[var(--cb-gutter)] cb-gutter"
+            className="sticky left-0 z-10 shrink-0 select-none text-right bg-[var(--cb-bg)] pr-3 pl-4 border-r border-[var(--cb-gutter-border)] text-[var(--cb-gutter)] cb-gutter py-2.5"
             style={{ width: gutterWidth }}
           >
             {visibleLines.map((_, i) => (
@@ -215,11 +211,13 @@ export const CodeBlock = React.memo(function CodeBlock({
           {/* Code */}
           <div className={cn("grow py-2.5 pl-4 pr-6 min-w-0", wrap ? "cb-wrap" : "cb-pre")}>
             {streaming || !highlightedLines ? (
-              <pre className="m-0 p-0 bg-transparent static"><code>{visibleLines.join("\n")}</code></pre>
+              <pre className="m-0 p-0 bg-transparent static leading-[1.6]"><code>{visibleLines.join("\n")}</code></pre>
             ) : (
               <div>
                 {visibleLines.map((_, i) => (
-                  <div key={i}>{highlightedLines[i] ? <React.Fragment>{highlightedLines[i]}</React.Fragment> : <code>{lines[i]}</code>}</div>
+                  <div key={i} className="leading-[1.6]">
+                    {highlightedLines[i] ? <React.Fragment>{highlightedLines[i]}</React.Fragment> : <code>{lines[i]}</code>}
+                  </div>
                 ))}
               </div>
             )}

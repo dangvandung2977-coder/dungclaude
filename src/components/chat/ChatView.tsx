@@ -20,9 +20,8 @@ import { MessageItem } from "./MessageItem";
 import { useToast, ConfirmModal } from "@/components/ui/primitives";
 import type { AIModel, Message, ReasoningEffort } from "@/types";
 import { useSession } from "@/hooks/useSession";
-import { cn, copyText } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { getDefaultReasoningEffort } from "@/lib/ai/reasoning";
-import { isPromptCreationRequest, extractGeneratedPrompt, insertTextToComposer } from "@/lib/prompt-intent";
 import { isImageGenerationRequest } from "@/lib/ai/image-intent";
 
 function formatSize(n: number): string {
@@ -461,20 +460,6 @@ export function ChatView({
   useEffect(() => { responseLengthRef.current = responseLength; }, [responseLength]);
   const activeConvIdRef = useRef(activeConvId);
   useEffect(() => { activeConvIdRef.current = activeConvId; }, [activeConvId]);
-  const isPromptRequestRef = useRef(false);
-
-  const handleAutoCopyPrompt = useCallback((content: string) => {
-    const hasPromptBlock = /(?:^|\n)[ \t]*`{3,}[^\n\r]*\b(?:prompt|pormpt|promt)(?:\.md|\.txt|\b)/i.test(content);
-    if (isPromptRequestRef.current || hasPromptBlock) {
-      const generatedPrompt = extractGeneratedPrompt(content);
-      if (generatedPrompt && generatedPrompt.trim().length > 0) {
-        insertTextToComposer(generatedPrompt, { mode: "replace", focus: true });
-        copyText(generatedPrompt).catch(() => {});
-        toast("✨ Đã tự động sao chép prompt vào ô chat!", "success");
-      }
-      isPromptRequestRef.current = false;
-    }
-  }, [toast]);
 
   // Poll VPS status to recover background generation after a local network drop
   const [isStreamingLive, setIsStreamingLive] = useState(false);
@@ -588,8 +573,6 @@ export function ChatView({
             });
 
             toast("Đã kết nối lại · Đã nhận câu trả lời hoàn chỉnh từ VPS!", "success");
-
-            handleAutoCopyPrompt(finalMsg.content || data.text || "");
           } else if (data.status === "error") {
             if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
             pollIntervalRef.current = null;
@@ -795,8 +778,6 @@ export function ChatView({
                 isGeneratingRef.current = false;
                 isRecoveringRef.current = false;
                 toast("Đã nhận câu trả lời hoàn chỉnh từ VPS!", "success");
-
-                handleAutoCopyPrompt(finalContent);
               } else if (type === "error") {
                 setMessages((s) =>
                   s.map((m) =>
@@ -1189,8 +1170,6 @@ export function ChatView({
                 )
               );
               currentAsstId = finalId;
-
-              handleAutoCopyPrompt(finalContent);
             } else if (type === "cancelled") {
               if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
               setStatus("");
@@ -1298,7 +1277,6 @@ export function ChatView({
     opts: { webSearch: boolean; tools: boolean; reasoningEffort?: ReasoningEffort }
   ) {
     if (isGeneratingRef.current) return;
-    isPromptRequestRef.current = isPromptCreationRequest(text);
     const tools = [
       ...(opts.tools ? ["calculator", "file_search"] : []),
       ...(opts.webSearch ? ["web_search"] : []),
