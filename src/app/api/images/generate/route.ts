@@ -3,15 +3,26 @@ import { requireUser } from "@/lib/auth/auth";
 import { ok, fail, httpError } from "@/lib/http";
 import { rateLimit } from "@/lib/security/security";
 import { config } from "@/lib/config";
-import { generateImage } from "@/lib/ai/image-gen";
+import { generateImageBatch } from "@/lib/ai/image-gen";
 
 export const runtime = "nodejs";
+
+const referenceSchema = z.object({
+  url: z.string().min(1),
+  role: z.enum(["style", "subject", "composition", "general"]).optional(),
+  weight: z.number().min(0).max(1).optional(),
+  fileName: z.string().optional(),
+});
 
 const schema = z.object({
   prompt: z.string().min(1, "Vui lòng nhập mô tả ảnh").max(2000),
   aspectRatio: z.enum(["1:1", "16:9", "9:16", "4:3", "3:4"]).optional().default("1:1"),
   style: z.string().max(50).optional(),
   modelId: z.string().max(200).optional(),
+  count: z.number().int().min(1).max(4).optional().default(1),
+  referenceImages: z.array(referenceSchema).max(5).optional(),
+  negativePrompt: z.string().max(1000).optional(),
+  seed: z.number().optional(),
   conversationId: z.string().optional(),
   projectId: z.string().optional(),
 });
@@ -35,17 +46,21 @@ export async function POST(req: Request): Promise<Response> {
       return fail("Dữ liệu không hợp lệ.", 400);
     }
 
-    const result = await generateImage({
+    const images = await generateImageBatch({
       prompt: body.prompt,
       aspectRatio: body.aspectRatio,
       style: body.style,
       modelId: body.modelId,
+      count: body.count,
+      referenceImages: body.referenceImages,
+      negativePrompt: body.negativePrompt,
+      seed: body.seed,
       userId: user.id,
       conversationId: body.conversationId,
       projectId: body.projectId,
     });
 
-    return ok({ image: result });
+    return ok({ images, image: images[0] });
   } catch (e) {
     return httpError(e);
   }

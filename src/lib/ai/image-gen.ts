@@ -6,6 +6,13 @@ import { uploadBuffer } from "@/lib/files/storage";
 import { createAttachment } from "@/lib/db/repos";
 import type { AIModel } from "@/types";
 
+export interface ImageReference {
+  url: string; // HTTP URL or base64 Data URL
+  role?: "style" | "subject" | "composition" | "general";
+  weight?: number; // 0.1 to 1.0
+  fileName?: string;
+}
+
 export interface ImageGenParams {
   prompt: string;
   aspectRatio?: "1:1" | "16:9" | "9:16" | "4:3" | "3:4" | string;
@@ -14,6 +21,9 @@ export interface ImageGenParams {
   userId?: string;
   conversationId?: string;
   projectId?: string;
+  referenceImages?: ImageReference[];
+  negativePrompt?: string;
+  seed?: number;
 }
 
 export interface GeneratedImageResult {
@@ -205,6 +215,30 @@ export async function generateImage(params: ImageGenParams): Promise<GeneratedIm
     fullPrompt = `${prompt}, ${STYLE_PRESETS[params.style].promptSuffix}`;
   }
 
+  // Enhance prompt with reference images context if provided
+  if (params.referenceImages && params.referenceImages.length > 0) {
+    const refDescriptions = params.referenceImages
+      .map((r, i) => {
+        const roleText =
+          r.role === "style"
+            ? "artistic style, color palette, and visual mood"
+            : r.role === "subject"
+            ? "subject appearance, character features, and main object structure"
+            : r.role === "composition"
+            ? "visual framing, perspective, and spatial composition"
+            : "visual aesthetic and attributes";
+        const weightPct = Math.round((r.weight ?? 0.8) * 100);
+        return `[Visual Reference #${i + 1}: Strongly adhere to the ${roleText} of the provided reference image (influence: ${weightPct}%)]`;
+      })
+      .join(" ");
+    fullPrompt = `${fullPrompt}\n\n${refDescriptions}`;
+  }
+
+  // Enhance prompt with negative prompt if provided
+  if (params.negativePrompt && params.negativePrompt.trim()) {
+    fullPrompt = `${fullPrompt}, (avoid: ${params.negativePrompt.trim()})`;
+  }
+
   // Resolve model to use
   const modelToUse = await resolveImageModel(params.modelId);
 
@@ -241,6 +275,16 @@ export async function generateImage(params: ImageGenParams): Promise<GeneratedIm
             response_format: "b64_json",
           };
           if (sizeParam) bodyPayload.size = sizeParam;
+          if (params.referenceImages && params.referenceImages.length > 0) {
+            bodyPayload.reference_images = params.referenceImages.map((r) => r.url);
+            bodyPayload.image = params.referenceImages[0].url;
+          }
+          if (params.negativePrompt) {
+            bodyPayload.negative_prompt = params.negativePrompt;
+          }
+          if (params.seed !== undefined) {
+            bodyPayload.seed = params.seed;
+          }
           return fetch(url, {
             method: "POST",
             headers,
@@ -443,6 +487,48 @@ export async function generateImage(params: ImageGenParams): Promise<GeneratedIm
     style: params.style,
     createdAt: new Date().toISOString(),
   };
+}
+
+/**
+ * Generates multiple images in parallel (batch generation: 1, 2, or 4 images like Google Flow / Midjourney).
+ */
+export async function generateImageBatch(
+  params: ImageGenParams & { count?: number }
+): Promise<GeneratedImageResult[]> {
+  const count = Math.max(1, Math.min(4, params.count ?? 1));
+  if (count === 1) {
+    const single = await generateImage(params);
+    return [single];
+  }
+
+  // Run `count` parallel generations with distinct variation seeds
+  const baseSeed = params.seed ?? Math.floor(Math.random() * 1000000);
+  const tasks = Array.from({ length: count }, (_, idx) => {
+    return generateImage({
+      ...params,
+      seed: baseSeed + idx * 7,
+    });
+  });
+
+  const settled = await Promise.allSettled(tasks);
+  const results: GeneratedImageResult[] = [];
+  let firstError: Error | null = null;
+
+  for (const item of settled) {
+    if (item.status === "fulfilled") {
+      results.push(item.value);
+    } else {
+      if (!firstError) {
+        firstError = item.reason instanceof Error ? item.reason : new Error(String(item.reason));
+      }
+    }
+  }
+
+  if (results.length === 0) {
+    throw firstError || new Error("Không thể tạo bất kỳ hình ảnh nào trong loạt ảnh.");
+  }
+
+  return results;
 }
 
 export { isImageGenerationRequest, stripAccents } from "./image-intent";
