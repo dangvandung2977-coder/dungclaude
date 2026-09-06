@@ -300,7 +300,7 @@ export function Composer({
     isSubmittingRef.current = true;
     try {
       const trimmed = text.trim();
-      const effectiveText = trimmed || (files.some((f) => f.kind === "image") ? "Hãy phân tích và mô tả chi tiết nội dung bức ảnh này." : "Hãy đọc và tóm tắt nội dung tệp tin này.");
+      const effectiveText = trimmed;
       onSend(effectiveText, files, {
         webSearch: mode === "cowork",
         tools: mode === "cowork" || files.length > 0,

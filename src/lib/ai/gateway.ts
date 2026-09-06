@@ -54,7 +54,8 @@ interface RawCallResult { text: string; inputTokens: number; outputTokens: numbe
 // passed as input_video when provider supports it, else as descriptive text
 // + parsed metadata so the request never silently drops user content.
 export function toOpenAIContent(text: string, atts: VisionAttachment[] = []): unknown[] {
-  const parts: unknown[] = [{ type: "text", text }];
+  const parts: unknown[] = [];
+  if (text && text.trim()) parts.push({ type: "text", text });
   for (const a of atts) {
     if (a.kind === "image") parts.push({ type: "image_url", image_url: { url: a.dataUrl } });
     else if (a.kind === "video") {
@@ -64,6 +65,7 @@ export function toOpenAIContent(text: string, atts: VisionAttachment[] = []): un
       parts.push({ type: "text", text: `[File ${a.fileName}]:\n${a.parsedText.slice(0, 12000)}` });
     }
   }
+  if (parts.length === 0) parts.push({ type: "text", text: "" });
   return parts;
 }
 
@@ -371,7 +373,10 @@ async function callAnthropic(opts: {
   // Convert to Anthropic blocks: images as base64 source, video/files as text context.
   const messages = opts.messages.filter((m) => m.role !== "system").map((m) => {
     if (!m.attachments?.length) return { role: m.role, content: m.content };
-    const content: unknown[] = [{ type: "text", text: m.content }];
+    const content: unknown[] = [];
+    if (m.content && m.content.trim()) {
+      content.push({ type: "text", text: m.content });
+    }
     for (const a of m.attachments) {
       if (a.kind === "image") {
         const [head, data] = a.dataUrl.split(",");
@@ -381,6 +386,7 @@ async function callAnthropic(opts: {
         content.push({ type: "text", text: `[${a.kind === "video" ? "Video" : "File"} ${a.fileName}]${a.parsedText ? ":\n" + a.parsedText.slice(0, 8000) : " (xem trực tiếp không khả dụng, hãy trả lời theo ngữ cảnh)"}` });
       }
     }
+    if (content.length === 0) content.push({ type: "text", text: "" });
     return { role: m.role, content };
   });
   const ctrl = new AbortController();

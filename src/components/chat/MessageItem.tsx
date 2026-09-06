@@ -554,11 +554,11 @@ export const MessageItem = React.memo(function MessageItem({
                 </button>
               </div>
             </div>
-          ) : (
+          ) : message.content?.trim() ? (
             <div className="px-4.5 py-3 rounded-2xl rounded-tr-sm bg-[#2B2927] text-[#ECEBE4] border border-white/[0.08] text-[16px] leading-relaxed whitespace-pre-wrap break-words shadow-sm font-sans">
               {message.content}
             </div>
-          )}
+          ) : null}
         </div>
 
         {/* Attachment chips / thumbnails */}
