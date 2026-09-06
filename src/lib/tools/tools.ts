@@ -102,8 +102,9 @@ export function calculate(expr: string): number {
 export async function executeTool(
   name: string,
   input: unknown,
-  ctx?: { conversationId?: string; projectId?: string; userId?: string }
+  ctx?: { conversationId?: string; projectId?: string; userId?: string; signal?: AbortSignal }
 ): Promise<string> {
+  if (ctx?.signal?.aborted) throw new Error("Đã dừng bởi người dùng");
   const args = (input ?? {}) as Record<string, unknown>;
   if (name === "calculator") {
     const v = calculate(String(args.expression ?? ""));
@@ -129,6 +130,7 @@ export async function executeTool(
       conversationId: ctx?.conversationId,
       projectId: ctx?.projectId,
       userId: ctx?.userId,
+      signal: ctx?.signal,
     });
     return JSON.stringify({
       success: true,
@@ -155,6 +157,7 @@ export async function executeTool(
       {
         userId: ctx?.userId || "anonymous",
         conversationId: ctx?.conversationId || "conv_temp",
+        signal: ctx?.signal,
       },
       "gemini:gemini-2.5-flash"
     );

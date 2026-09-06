@@ -31,7 +31,7 @@ export interface ArtifactResult {
 export async function generateArtifact(
   intent: { kind: ArtifactKind; fileName: string | null; instruction: string },
   message: string,
-  ctx: { userId: string; conversationId: string },
+  ctx: { userId: string; conversationId: string; signal?: AbortSignal },
   modelId: string,
   opts?: {
     history?: GatewayMessage[];
@@ -63,7 +63,7 @@ export async function generateArtifact(
     system: prompt,
     messages: contextMessages,
     maxTokens: 8000,
-    cb: { onToken: opts?.onToken ?? (() => {}) },
+    cb: { onToken: opts?.onToken ?? (() => {}), signal: ctx.signal },
   });
   const parsed = kind === "py" ? null : extractJson(result.text);
 

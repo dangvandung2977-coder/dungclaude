@@ -203,6 +203,7 @@ You MUST carefully read the conversation context and synthesize a rich, high-qua
           conversationId: conv.id,
           projectId: conv.projectId ?? undefined,
           userId: user.id,
+          signal: req.signal,
         }),
     });
 

@@ -353,6 +353,7 @@ You MUST carefully read the conversation context and synthesize a rich, high-qua
               conversationId: conv.id,
               projectId: conv.projectId ?? undefined,
               userId: user.id,
+              signal: activeTask.abortController.signal,
             });
           },
         });
@@ -431,6 +432,7 @@ You MUST carefully read the conversation context and synthesize a rich, high-qua
               userId: user.id,
               conversationId: conv.id,
               projectId: conv.projectId ?? undefined,
+              signal: activeTask.abortController.signal,
             });
             if (autoImg && (autoImg.url || autoImg.id)) {
               const autoUrl = autoImg.url || (autoImg.id ? `/api/files/${autoImg.id}` : "");

@@ -24,6 +24,7 @@ export interface ImageGenParams {
   referenceImages?: ImageReference[];
   negativePrompt?: string;
   seed?: number;
+  signal?: AbortSignal;
 }
 
 export interface GeneratedImageResult {
@@ -282,6 +283,7 @@ export async function generateImage(params: ImageGenParams): Promise<GeneratedIm
             method: "POST",
             headers,
             body: JSON.stringify(bodyPayload),
+            signal: params.signal,
           });
         };
 
