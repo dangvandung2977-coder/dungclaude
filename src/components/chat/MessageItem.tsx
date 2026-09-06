@@ -375,6 +375,7 @@ interface MessageItemProps {
   message: Message;
   streaming?: boolean;
   onRegenerate?: () => void;
+  onContinue?: () => void;
   onEdit?: (text: string) => void;
   conversationTitle?: string;
 }
@@ -383,6 +384,7 @@ export const MessageItem = React.memo(function MessageItem({
   message,
   streaming = false,
   onRegenerate,
+  onContinue,
   onEdit,
   conversationTitle,
 }: MessageItemProps) {
@@ -704,9 +706,42 @@ export const MessageItem = React.memo(function MessageItem({
             />
           </div>
         ) : !streaming && parsed.thinking ? (
-          <p className="text-xs text-[#8E8B82] italic py-1">
-            ⚠️ Mô hình đã dừng phản hồi trước khi xuất kết quả hoàn chỉnh.
-          </p>
+          <div className="py-2.5 px-3.5 my-2 rounded-xl bg-[#262523] border border-[#D97757]/30 text-xs text-[#ECEBE4] flex flex-col gap-2.5 animate-in fade-in duration-200">
+            <div className="flex items-start gap-2.5">
+              <span className="text-base leading-none mt-0.5">⚠️</span>
+              <div>
+                <p className="font-semibold text-[#D97757]">
+                  Mô hình đã dùng hết dung lượng token ({parsed.wordCount.toLocaleString()} từ suy nghĩ) trước khi kịp xuất kết quả hoàn chỉnh.
+                </p>
+                <p className="text-[#A6A49B] text-[11px] mt-0.5 leading-relaxed">
+                  Toàn bộ token của lượt này đã được dùng trong quá trình tính toán logic nội bộ. Bạn có thể bấm nút bên dưới để mô hình tiếp tục xuất thẳng mã nguồn / nội dung đầy đủ ngay lập tức mà không cần suy nghĩ lại.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 pt-1 border-t border-white/[0.06]">
+              {onContinue && (
+                <button
+                  type="button"
+                  onClick={onContinue}
+                  className="px-3 py-1.5 rounded-lg bg-[#D97757] hover:bg-[#E2886A] text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm"
+                  title="Gửi lệnh tiếp tục sinh kết quả ngay mà không suy nghĩ lại"
+                >
+                  <Zap size={12} fill="currentColor" />
+                  <span>⚡ Tiếp tục xuất kết quả</span>
+                </button>
+              )}
+              {onRegenerate && (
+                <button
+                  type="button"
+                  onClick={onRegenerate}
+                  className="px-3 py-1.5 rounded-lg bg-[#302E2B] hover:bg-[#3A3834] text-[#ECEBE4] text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer border border-white/10"
+                >
+                  <RefreshCw size={12} />
+                  <span>Tạo lại câu trả lời</span>
+                </button>
+              )}
+            </div>
+          </div>
         ) : null}
 
         {/* Project ZIP card: rendered at the bottom of the response, only for real projects */}

@@ -1711,6 +1711,16 @@ export function ChatView({
                         ? stableRegen.bind(null, m.id)
                         : undefined
                     }
+                    onContinue={
+                      m.role === "assistant"
+                        ? () =>
+                            send(
+                              "Hãy tiếp tục xuất kết quả hoàn chỉnh ngay từ phần trên, trả thẳng mã nguồn / nội dung đầy đủ mà không cần suy nghĩ lại.",
+                              [],
+                              { webSearch: false, tools: false, reasoningEffort: "minimal" }
+                            )
+                        : undefined
+                    }
                     onEdit={m.role === "user" ? handleEditMessage : undefined}
                     conversationTitle={currentTitle}
                   />

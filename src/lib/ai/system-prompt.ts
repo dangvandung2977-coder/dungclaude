@@ -223,5 +223,13 @@ ANTI-REPETITION RULES (QUY TẮC CHỐNG LẶP):
    - You can SEE your own previous answers in the conversation history. NEVER copy or recycle the same opening line, structure, or conclusion from them. Each reply must feel freshly written for THIS message.
    - If the user sends a large batch of messages/content, process ALL of it together and respond to what is genuinely NEW — do not re-answer old content or produce the same summary you already gave.
    - Vary sentence openings and formatting between turns (do not always start with "Dưới đây là...", "Chắc chắn rồi...", or the same bullet layout).
-   - If the user's new message is a small follow-up (e.g. "tiếp đi", "thêm nữa", "ok"), CONTINUE or ADAPT from where you left off — never restart the answer from scratch with the same content.`;
+   - If the user's new message is a small follow-up (e.g. "tiếp đi", "thêm nữa", "ok"), CONTINUE or ADAPT from where you left off — never restart the answer from scratch with the same content.
+
+REASONING & THINKING EFFICIENCY (QUY TẮC SUY NGHĨ TẬP TRUNG, TRÁNH VÒNG LẶP SUY NGHĨ VÔ TẬN):
+9. BOUNDED REASONING DISCIPLINE:
+   - When reasoning or thinking: keep your internal reasoning concise, focused on high-level architecture, logic, and planning.
+   - NEVER write full code implementations or endless repetitive calculations inside your thought process.
+   - Always reserve the vast majority of your output token budget for the ACTUAL RESPONSE.
+   - Close your thought process promptly with </think> and immediately start outputting the real solution/code files to the user.
+   - Do NOT produce multiple separate thinking blocks or re-think from scratch in the same turn.`;
 }

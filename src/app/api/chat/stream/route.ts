@@ -472,11 +472,15 @@ You MUST carefully read the conversation context and synthesize a rich, high-qua
         const cost = respondingMeta
           ? calculateCost(respondingMeta, { inputTokens: inTok, outputTokens: outTok, cachedInputTokens: result.cachedInputTokens, cacheCreationTokens: result.cacheCreationTokens })
           : calcCost(respondingModelId, inTok, outTok, allModels);
+        let savedContent = full;
+        if (/<(think|thinking)>(?![\s\S]*<\/\1>)/i.test(savedContent)) {
+          savedContent += "\n</think>\n\n";
+        }
         // Persist assistant message
         const assistantMsg = await createMessage({
-          conversationId: conv.id, role: "assistant", content: full,
+          conversationId: conv.id, role: "assistant", content: savedContent,
           parts: [
-            { type: "text", text: full },
+            { type: "text", text: savedContent },
             ...generatedImageParts,
             ...generatedFileParts,
             ...toolEvents.map((t) => ({ type: "tool_call" as const, toolName: t.name, toolCallId: t.id, toolInput: t.input, toolOutput: t.output, status: "success" as const })),
@@ -584,11 +588,15 @@ You MUST carefully read the conversation context and synthesize a rich, high-qua
             console.log(`[CHAT] generation cancelled by user: conv=${conv.id}`);
           }
           if (full && !assistantMsgSaved) {
+            let partialContent = full;
+            if (/<(think|thinking)>(?![\s\S]*<\/\1>)/i.test(partialContent)) {
+              partialContent += "\n</think>\n\n";
+            }
             await createMessage({
               conversationId: conv.id,
               role: "assistant",
-              content: full,
-              parts: [{ type: "text", text: full }],
+              content: partialContent,
+              parts: [{ type: "text", text: partialContent }],
               modelId: optimized.routing.modelId,
             }).catch(() => {});
             assistantMsgSaved = true;
@@ -604,11 +612,15 @@ You MUST carefully read the conversation context and synthesize a rich, high-qua
 
         // Persist partial ONLY if assistant message was not already saved
         if (full && !assistantMsgSaved) {
+          let partialContent = full;
+          if (/<(think|thinking)>(?![\s\S]*<\/\1>)/i.test(partialContent)) {
+            partialContent += "\n</think>\n\n";
+          }
           await createMessage({
             conversationId: conv.id,
             role: "assistant",
-            content: full,
-            parts: [{ type: "text", text: full }],
+            content: partialContent,
+            parts: [{ type: "text", text: partialContent }],
             modelId: optimized.routing.modelId,
           }).catch(() => {});
           assistantMsgSaved = true;

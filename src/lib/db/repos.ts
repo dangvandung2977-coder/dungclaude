@@ -217,7 +217,7 @@ export async function createMessage(data: {
   const id = uid("msg");
   const { error } = await sb.from("messages").insert({
     id, conversation_id: data.conversationId, role: data.role,
-    content: data.content.slice(0, 200000), model_id: data.modelId ?? null,
+    content: data.content.slice(0, 2000000), model_id: data.modelId ?? null,
   });
   if (error) throw dbError(error, "Không lưu được message");
   if (data.parts?.length) {

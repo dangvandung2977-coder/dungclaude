@@ -106,6 +106,11 @@ async function streamSSE(res: Response, onToken: (t: string) => void): Promise<{
         text += "\n</think>\n\n";
         onToken("\n</think>\n\n");
       }
+      const hasUnclosedThink = /<(think|thinking)>(?![\s\S]*<\/\1>)/i.test(text);
+      if (hasUnclosedThink) {
+        text += "\n</think>\n\n";
+        onToken("\n</think>\n\n");
+      }
       break;
     }
     buf += decoder.decode(value, { stream: true });
@@ -118,6 +123,11 @@ async function streamSSE(res: Response, onToken: (t: string) => void): Promise<{
       if (payload === "[DONE]") {
         if (inReasoning) {
           inReasoning = false;
+          text += "\n</think>\n\n";
+          onToken("\n</think>\n\n");
+        }
+        const hasUnclosedThink = /<(think|thinking)>(?![\s\S]*<\/\1>)/i.test(text);
+        if (hasUnclosedThink) {
           text += "\n</think>\n\n";
           onToken("\n</think>\n\n");
         }
