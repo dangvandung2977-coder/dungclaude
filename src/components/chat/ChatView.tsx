@@ -248,20 +248,26 @@ export function ChatView({
 
   const resolveConversationEffort = useCallback(
     (convId: string | null | undefined, targetModelId: string): ReasoningEffort => {
+      const VALID_EFFORTS = new Set<string>(["minimal", "low", "medium", "high", "max"]);
       if (typeof window !== "undefined") {
+        // 1. Priority 1: Effort specifically chosen and saved for THIS conversation
         if (convId && convId !== "new") {
           const savedConvEffort = localStorage.getItem(`dclaude_conv_effort_${convId}`);
-          if (savedConvEffort === "low" || savedConvEffort === "medium" || savedConvEffort === "high") {
-            return savedConvEffort;
+          if (savedConvEffort && VALID_EFFORTS.has(savedConvEffort)) {
+            return savedConvEffort as ReasoningEffort;
           }
         }
-        const savedModelEffort = localStorage.getItem(`dclaude_model_effort_${targetModelId}`);
-        if (savedModelEffort === "low" || savedModelEffort === "medium" || savedModelEffort === "high") {
-          return savedModelEffort;
+        // 2. Priority 2: Effort preference saved for THIS model
+        if (targetModelId) {
+          const savedModelEffort = localStorage.getItem(`dclaude_model_effort_${targetModelId}`);
+          if (savedModelEffort && VALID_EFFORTS.has(savedModelEffort)) {
+            return savedModelEffort as ReasoningEffort;
+          }
         }
+        // 3. Priority 3: Last globally chosen effort
         const savedLastEffort = localStorage.getItem("dclaude_last_effort");
-        if (savedLastEffort === "low" || savedLastEffort === "medium" || savedLastEffort === "high") {
-          return savedLastEffort;
+        if (savedLastEffort && VALID_EFFORTS.has(savedLastEffort)) {
+          return savedLastEffort as ReasoningEffort;
         }
       }
       return getDefaultReasoningEffort(targetModelId);
@@ -283,9 +289,11 @@ export function ChatView({
   const handleEffortChange = useCallback(
     (newEffort: ReasoningEffort) => {
       setReasoningEffort(newEffort);
+      reasoningEffortRef.current = newEffort;
       if (typeof window !== "undefined") {
-        if (activeConvId && activeConvId !== "new") {
-          localStorage.setItem(`dclaude_conv_effort_${activeConvId}`, newEffort);
+        const conv = activeConvIdRef.current || conversationId;
+        if (conv && conv !== "new") {
+          localStorage.setItem(`dclaude_conv_effort_${conv}`, newEffort);
         }
         if (modelId) {
           localStorage.setItem(`dclaude_model_effort_${modelId}`, newEffort);
@@ -293,28 +301,34 @@ export function ChatView({
         localStorage.setItem("dclaude_last_effort", newEffort);
       }
     },
-    [activeConvId, modelId]
+    [conversationId, modelId]
   );
 
   const handleModelChange = useCallback(
     (newModelId: string) => {
       setModelId(newModelId);
-      const targetEffort = resolveConversationEffort(activeConvId, newModelId);
+      const conv = activeConvIdRef.current || conversationId;
+      const targetEffort = resolveConversationEffort(conv, newModelId);
       setReasoningEffort(targetEffort);
+      reasoningEffortRef.current = targetEffort;
 
       if (typeof window !== "undefined") {
         localStorage.setItem("dclaude_last_model", newModelId);
+        if (conv && conv !== "new") {
+          localStorage.setItem(`dclaude_conv_model_${conv}`, newModelId);
+          localStorage.setItem(`dclaude_conv_effort_${conv}`, targetEffort);
+        }
       }
       // Persist model to the conversation record in database so it is remembered
-      if (activeConvId && activeConvId !== "new") {
-        fetch(`/api/conversations/${activeConvId}`, {
+      if (conv && conv !== "new") {
+        fetch(`/api/conversations/${conv}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ modelId: newModelId }),
         }).catch(() => {});
       }
     },
-    [activeConvId, resolveConversationEffort]
+    [conversationId, resolveConversationEffort]
   );
 
   // Optimization telemetry from last response (subtle indicator, spec §27)
@@ -357,6 +371,7 @@ export function ChatView({
       setModelId(targetModel);
       const targetEffort = resolveConversationEffort(conversationId, targetModel);
       setReasoningEffort(targetEffort);
+      reasoningEffortRef.current = targetEffort;
     }
   }, [conversationId, initialMessages, initialModelId, resolveConversationModel, resolveConversationEffort]);
 
@@ -967,6 +982,11 @@ export function ChatView({
     }
 
     try {
+      const currentEffort = reasoningEffort ?? reasoningEffortRef.current;
+      if (typeof window !== "undefined" && activeConvIdRef.current && activeConvIdRef.current !== "new") {
+        localStorage.setItem(`dclaude_conv_effort_${activeConvIdRef.current}`, currentEffort);
+      }
+
       const fetchPayload = {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -978,7 +998,7 @@ export function ChatView({
           tools,
           projectId: projectId ?? undefined,
           responseLength: responseLengthRef.current,
-          reasoningEffort,
+          reasoningEffort: currentEffort,
           regenerate: Boolean(isRegenerate),
         }),
         signal: ctrl.signal,
@@ -1032,6 +1052,12 @@ export function ChatView({
               if (j.conversationId && (activeConvIdRef.current === "new" || activeConvIdRef.current !== j.conversationId)) {
                 currentConvIdRef.current = j.conversationId;
                 setActiveConvId(j.conversationId);
+                if (typeof window !== "undefined") {
+                  localStorage.setItem(`dclaude_conv_effort_${j.conversationId}`, reasoningEffortRef.current);
+                  if (modelId) {
+                    localStorage.setItem(`dclaude_conv_model_${j.conversationId}`, modelId);
+                  }
+                }
                 window.history.replaceState(null, "", `/app/c/${j.conversationId}`);
                 window.dispatchEvent(
                   new CustomEvent("conversation:created", {
