@@ -3,7 +3,9 @@ const { Client } = require('ssh2');
 const conn = new Client();
 conn.on('ready', () => {
   console.log("SSH connection established. Running deploy commands...");
-  const cmd = `cd /var/www/dungclaude && git pull origin main && npm run build && pm2 restart dungclaude && pm2 save`;
+  // ponytail: stop app BEFORE build — replacing .next under a running server
+  // wedges it (chunk TypeErrors + 100% CPU on a 2-core box → Cloudflare 524).
+  const cmd = `cd /var/www/dungclaude && pm2 stop dungclaude && git pull origin main && npm run build && pm2 start dungclaude && pm2 save`;
   conn.exec(cmd, (err, stream) => {
     if (err) {
       console.error("Exec error:", err);
