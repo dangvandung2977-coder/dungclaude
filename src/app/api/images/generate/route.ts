@@ -15,7 +15,7 @@ const referenceSchema = z.object({
 });
 
 const schema = z.object({
-  prompt: z.string().min(1, "Vui lòng nhập mô tả ảnh").max(2000),
+  prompt: z.string().min(1, "Vui lòng nhập mô tả ảnh").max(8000),
   aspectRatio: z.enum(["1:1", "16:9", "9:16", "4:3", "3:4"]).optional().default("1:1"),
   style: z.string().max(50).optional(),
   modelId: z.string().max(200).optional(),

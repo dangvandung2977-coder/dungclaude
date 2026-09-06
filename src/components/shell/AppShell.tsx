@@ -79,6 +79,24 @@ export function AppShell({
 
     const handleUpdate = () => refresh();
 
+    // Kéo conv vừa chat lên đầu danh sách (mới nhất đứng trước, giảm dần theo thời gian)
+    const handleBump = (e: Event) => {
+      const detail = (e as CustomEvent<{ id?: string }>).detail;
+      const id = detail?.id;
+      if (!id) { refresh(); return; }
+      setConversations((prev) => {
+        const i = prev.findIndex((c) => c.id === id);
+        if (i <= 0) return prev;
+        const conv = { ...prev[i], updatedAt: new Date().toISOString() };
+        const rest = [...prev.slice(0, i), ...prev.slice(i + 1)];
+        // Giữ conv đang pin luôn ở trên (server sort pinned desc trước updated_at desc)
+        const firstUnpinned = rest.findIndex((c) => !c.pinned);
+        if (conv.pinned) return [conv, ...rest];
+        if (firstUnpinned === -1) return [...rest, conv];
+        return [...rest.slice(0, firstUnpinned), conv, ...rest.slice(firstUnpinned)];
+      });
+    };
+
     const handleRenamed = (e: Event) => {
       const detail = (e as CustomEvent<{ id: string; title: string }>).detail;
       if (!detail?.id || !detail?.title) return;
@@ -89,10 +107,12 @@ export function AppShell({
 
     window.addEventListener("conversation:created", handleCreated);
     window.addEventListener("conversation:updated", handleUpdate);
+    window.addEventListener("conversation:bump", handleBump);
     window.addEventListener("conversation:renamed", handleRenamed);
     return () => {
       window.removeEventListener("conversation:created", handleCreated);
       window.removeEventListener("conversation:updated", handleUpdate);
+      window.removeEventListener("conversation:bump", handleBump);
       window.removeEventListener("conversation:renamed", handleRenamed);
     };
   }, [refresh]);

@@ -1022,6 +1022,8 @@ export function ChatView({
         const j = await r.json().catch(() => ({}));
         throw new Error(j.error ?? `Lỗi kết nối máy chủ (${r.status})`);
       }
+      // Conv này vừa được server touch updated_at → kéo lên đầu sidebar ngay (optimistic)
+      window.dispatchEvent(new CustomEvent("conversation:bump", { detail: { id: activeConvIdRef.current } }));
 
       const reader = r.body.getReader();
       const decoder = new TextDecoder();
