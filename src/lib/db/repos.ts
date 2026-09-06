@@ -361,6 +361,12 @@ export async function getAttachment(id: string): Promise<Attachment | null> {
   return data ? mapAttachment(data as Row) : null;
 }
 
+export async function deleteAttachment(id: string, userId: string): Promise<boolean> {
+  const { data, error } = await getSupabase().from("attachments").delete().eq("id", id).eq("user_id", userId).select("id").single();
+  if (error) return false;
+  return Boolean(data);
+}
+
 export async function listAttachmentsByConversation(conversationId: string): Promise<Attachment[]> {
   const { data, error } = await getSupabase().from("attachments").select("*")
     .eq("conversation_id", conversationId).order("created_at", { ascending: true });

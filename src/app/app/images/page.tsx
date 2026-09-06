@@ -408,6 +408,31 @@ function ImageStudioContent() {
     }
   };
 
+  // Xóa 1 ảnh khỏi history (localStorage) + xóa file trên server nếu ảnh có attachment
+  const handleDeleteHistoryItem = async (img: GeneratedImage) => {
+    const fileId = img.id && !img.id.startsWith("img_") ? img.id : img.url.match(/^\/api\/files\/([^/?#]+)/)?.[1];
+    const removeLocal = () => {
+      setHistory((prev) => {
+        const updated = prev.filter((h) => (h.id || h.url) !== (img.id || img.url));
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(updated)); } catch {}
+        return updated;
+      });
+      setCurrentBatch((prev) => prev.filter((h) => (h.id || h.url) !== (img.id || img.url)));
+    };
+    if (fileId) {
+      try {
+        const res = await fetch(`/api/files/${fileId}`, { method: "DELETE" });
+        if (!res.ok && res.status !== 404) {
+          toast("Không xóa được ảnh trên máy chủ", "error");
+          return;
+        }
+      } catch {}
+    }
+    removeLocal();
+    setLightboxImg(null);
+    toast("Đã xóa ảnh", "success");
+  };
+
   const handleCopyPrompt = async (text: string, id: string) => {
     if (await copyText(text)) {
       setCopiedId(id);
@@ -941,6 +966,17 @@ function ImageStudioContent() {
                           >
                             <Download size={12} />
                           </a>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleDeleteHistoryItem(img);
+                            }}
+                            className="p-1.5 rounded-lg bg-black/70 text-white hover:bg-red-500 transition-colors"
+                            title="Xóa ảnh"
+                          >
+                            <Trash2 size={12} />
+                          </button>
                         </div>
                         <div>
                           <p className="text-[11px] text-white line-clamp-2 leading-snug">
@@ -1431,6 +1467,14 @@ function ImageStudioContent() {
                 <Download size={13} />
                 <span>Tải về</span>
               </a>
+              <button
+                type="button"
+                onClick={() => void handleDeleteHistoryItem(lightboxImg)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-white/10 hover:bg-red-500 border border-white/10 transition-colors cursor-pointer"
+              >
+                <Trash2 size={13} />
+                <span>Xóa ảnh</span>
+              </button>
               <button
                 type="button"
                 onClick={() => setLightboxImg(null)}
