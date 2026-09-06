@@ -93,11 +93,11 @@ export function extractGeneratedPrompt(responseContent: string): string | null {
   }
 
   // 1.8. Delimited by start/end markers (e.g. "▶️ PROMPT BẮT ĐẦU ... ⏹️ PROMPT KẾT THÚC")
-  const startMarkerRegex = /(?:^|\n)(?:---[ \t]*\r?\n+)?(?:[ \t]*(?:[#*~_`>▶️🚀📌🎯💡👉-]*\s*)*(?:(?:PROMPT|CÂU LỆNH)\s*(?:BẮT ĐẦU|START|BEGIN)|(?:BẮT ĐẦU|START|BEGIN)\s*(?:PROMPT|CÂU LỆNH))[^\n\r]*)\r?\n+([\s\S]+)$/i;
+  const startMarkerRegex = /(?:^|\n)(?:---[ \t]*\r?\n+)?[ \t]*[#*~_`>▶️🚀📌🎯💡👉-]*[ \t]*(?:(?:PROMPT|CÂU LỆNH)[ \t]*(?:BẮT ĐẦU|START|BEGIN)|(?:BẮT ĐẦU|START|BEGIN)[ \t]*(?:PROMPT|CÂU LỆNH))[^\n\r]*\r?\n+([\s\S]+)$/i;
   const startMatch = startMarkerRegex.exec(content);
   if (startMatch) {
     let candidate = startMatch[1].trim();
-    const endMarkerRegex = /(?:^|\n)[ \t]*(?:[#*~_`>⏹️🛑🔚👉-]*\s*)*(?:(?:PROMPT|CÂU LỆNH)\s*(?:KẾT THÚC|END|FINISH|STOP)|(?:KẾT THÚC|END|FINISH|STOP)\s*(?:PROMPT|CÂU LỆNH))[^\n\r]*(?:\r?\n+|$)/i;
+    const endMarkerRegex = /(?:^|\n)[ \t]*[#*~_`>⏹️🛑🔚👉-]*[ \t]*(?:(?:PROMPT|CÂU LỆNH)[ \t]*(?:KẾT THÚC|END|FINISH|STOP)|(?:KẾT THÚC|END|FINISH|STOP)[ \t]*(?:PROMPT|CÂU LỆNH))[^\n\r]*(?:\r?\n+|$)/i;
     const endMatch = endMarkerRegex.exec(candidate);
     if (endMatch) {
       candidate = candidate.slice(0, endMatch.index).trim();
@@ -124,12 +124,15 @@ export function extractGeneratedPrompt(responseContent: string): string | null {
     }
   }
 
-  // If any codeblock has filename or meta containing "prompt", e.g. prompt.md
-  const promptFileBlock = codeBlocks.find(
+  // If codeblocks have filename or meta containing "prompt", e.g. prompt.md or prompt_1.md, prompt_2.md
+  const promptCodeBlocks = codeBlocks.filter(
     (b) => b.meta.includes("prompt") || b.meta.includes("pormpt") || b.lang === "prompt" || b.lang === "pormpt" || b.lang === "systemprompt"
   );
-  if (promptFileBlock && promptFileBlock.code) {
-    return promptFileBlock.code;
+  if (promptCodeBlocks.length > 1) {
+    return promptCodeBlocks.map((b, i) => `// Prompt ${i + 1}:\n${b.code}`).join("\n\n");
+  }
+  if (promptCodeBlocks.length === 1 && promptCodeBlocks[0].code) {
+    return promptCodeBlocks[0].code;
   }
 
   // If any codeblock is labeled text, txt, md, markdown

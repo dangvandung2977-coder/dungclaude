@@ -178,8 +178,58 @@ function autoBoxLoosePrompts(text: string): string {
     return text;
   }
 
+  // --- Type 0: Multi-prompt splitter (e.g. Prompt 1, Prompt 2, etc.) ---
+  const multiPromptHeaderRegex = /(?:^|\n)(?:---[ \t]*\r?\n+)?[ \t]*[#*~_`>▶️🚀📌🎯💡👉-]*[ \t]*(?:(?:\d+[\.\)]\s*)?(?:PROMPT|Prompt|CÂU LỆNH|Câu lệnh)\s*(?:\d+|#\d+|[A-Za-z]\b)?\s*[:\-\—]?)[^\n\r]*\r?\n+/gi;
+  const multiMatches: { index: number; length: number; header: string }[] = [];
+  let mm: RegExpExecArray | null;
+  while ((mm = multiPromptHeaderRegex.exec(text)) !== null) {
+    multiMatches.push({
+      index: mm.index + (mm[0].startsWith("\n") ? 1 : 0),
+      length: mm[0].length - (mm[0].startsWith("\n") ? 1 : 0),
+      header: mm[0].trim(),
+    });
+  }
+
+  if (multiMatches.length >= 2) {
+    let result = text.slice(0, multiMatches[0].index).trim();
+    let trailingFooter = "";
+
+    for (let i = 0; i < multiMatches.length; i++) {
+      const startContent = multiMatches[i].index + multiMatches[i].length;
+      const endContent = i + 1 < multiMatches.length ? multiMatches[i + 1].index : text.length;
+      let promptBody = text.slice(startContent, endContent).trim();
+
+      // Clean end marker
+      promptBody = promptBody.replace(
+        /(?:\r?\n)[ \t]*[#*~_`>⏹️🛑🔚👉-]*[ \t]*(?:(?:PROMPT|CÂU LỆNH)[ \t]*(?:KẾT THÚC|END|FINISH|STOP)|(?:KẾT THÚC|END|FINISH|STOP)[ \t]*(?:PROMPT|CÂU LỆNH))[^\n\r]*(?:\r?\n+|$)/i,
+        ""
+      ).trim();
+
+      if (i === multiMatches.length - 1) {
+        const footerMatch = /(?:\r?\n+)[ \t]*(?:Chúc bạn|Hy vọng|Nếu bạn|Bạn có thể|Hope this|Let me know|Feel free)[\s\S]*$/i.exec(promptBody);
+        if (footerMatch) {
+          trailingFooter = promptBody.slice(footerMatch.index).trim();
+          promptBody = promptBody.slice(0, footerMatch.index).trim();
+        }
+      }
+
+      if (promptBody.length >= 20) {
+        const fenceName = `prompt_${i + 1}.md`;
+        const wrapped = `\`\`\`\`markdown:${fenceName}\n${promptBody}\n\`\`\`\``;
+        result += (result ? "\n\n" : "") + wrapped;
+      } else {
+        result += (result ? "\n\n" : "") + promptBody;
+      }
+    }
+
+    if (trailingFooter) {
+      result += "\n\n" + trailingFooter;
+    }
+    return result;
+  }
+
   // --- Type 1: Start marker like "▶️ PROMPT BẮT ĐẦU" or "PROMPT BẮT ĐẦU" or "START OF PROMPT" ---
-  const startMarkerRegex = /(?:^|\n)(?:---[ \t]*\r?\n+)?(?:[ \t]*(?:[#*~_`>▶️🚀📌🎯💡👉-]*\s*)*(?:(?:PROMPT|CÂU LỆNH)\s*(?:BẮT ĐẦU|START|BEGIN)|(?:BẮT ĐẦU|START|BEGIN)\s*(?:PROMPT|CÂU LỆNH))[^\n\r]*)\r?\n+([\s\S]+)$/i;
+  const startMarkerRegex = /(?:^|\n)(?:---[ \t]*\r?\n+)?[ \t]*[#*~_`>▶️🚀📌🎯💡👉-]*[ \t]*(?:(?:PROMPT|CÂU LỆNH)[ \t]*(?:BẮT ĐẦU|START|BEGIN)|(?:BẮT ĐẦU|START|BEGIN)[ \t]*(?:PROMPT|CÂU LỆNH))[^\n\r]*\r?\n+([\s\S]+)$/i;
   const startMatch = startMarkerRegex.exec(text);
 
   if (startMatch) {
@@ -187,7 +237,7 @@ function autoBoxLoosePrompts(text: string): string {
     let candidate = startMatch[1].trim();
 
     // Check if there is an end marker like "⏹️ PROMPT KẾT THÚC" or "PROMPT KẾT THÚC" or "END OF PROMPT"
-    const endMarkerRegex = /(?:^|\n)[ \t]*(?:[#*~_`>⏹️🛑🔚👉-]*\s*)*(?:(?:PROMPT|CÂU LỆNH)\s*(?:KẾT THÚC|END|FINISH|STOP)|(?:KẾT THÚC|END|FINISH|STOP)\s*(?:PROMPT|CÂU LỆNH))[^\n\r]*(?:\r?\n+|$)/i;
+    const endMarkerRegex = /(?:^|\n)[ \t]*[#*~_`>⏹️🛑🔚👉-]*[ \t]*(?:(?:PROMPT|CÂU LỆNH)[ \t]*(?:KẾT THÚC|END|FINISH|STOP)|(?:KẾT THÚC|END|FINISH|STOP)[ \t]*(?:PROMPT|CÂU LỆNH))[^\n\r]*(?:\r?\n+|$)/i;
     const endMatch = endMarkerRegex.exec(candidate);
 
     let trailing = "";
@@ -215,7 +265,7 @@ function autoBoxLoosePrompts(text: string): string {
 
   // --- Type 3: Separated by horizontal divider (---) or heading containing Prompt / Câu lệnh ---
   // e.g. "Dưới đây là prompt...\n\n---\n\nPrompt\n\nHãy..." or "\n### Prompt tạo game\n\nHãy..."
-  const sectionMatch = /(?:^|\n)(?:---[ \t]*\r?\n+)?(?:[ \t]*(?:[#*~_`>▶️🚀📌🎯💡👉-]*\s*)*(?:PROMPT|Prompt|CÂU LỆNH|Câu lệnh)[^\n\r]*\r?\n+)([\s\S]+)$/i.exec(text);
+  const sectionMatch = /(?:^|\n)(?:---[ \t]*\r?\n+)?[ \t]*[#*~_`>▶️🚀📌🎯💡👉-]*[ \t]*(?:PROMPT|Prompt|CÂU LỆNH|Câu lệnh)[^\n\r]*\r?\n+([\s\S]+)$/i.exec(text);
 
   let matchIndex = -1;
   let candidate = "";
@@ -235,7 +285,7 @@ function autoBoxLoosePrompts(text: string): string {
   if (fenceCount > 0 && fenceCount % 2 === 0) return text;
 
   // Check if candidate has an end marker
-  const endMarkerRegex = /(?:^|\n)[ \t]*(?:[#*~_`>⏹️🛑🔚👉-]*\s*)*(?:(?:PROMPT|CÂU LỆNH)\s*(?:KẾT THÚC|END|FINISH|STOP)|(?:KẾT THÚC|END|FINISH|STOP)\s*(?:PROMPT|CÂU LỆNH))[^\n\r]*(?:\r?\n+|$)/i;
+  const endMarkerRegex = /(?:^|\n)[ \t]*[#*~_`>⏹️🛑🔚👉-]*[ \t]*(?:(?:PROMPT|CÂU LỆNH)[ \t]*(?:KẾT THÚC|END|FINISH|STOP)|(?:KẾT THÚC|END|FINISH|STOP)[ \t]*(?:PROMPT|CÂU LỆNH))[^\n\r]*(?:\r?\n+|$)/i;
   const endMatch = endMarkerRegex.exec(candidate);
   let trailing = "";
   if (endMatch) {

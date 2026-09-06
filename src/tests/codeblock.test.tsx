@@ -221,4 +221,31 @@ Chúc bạn tạo game thành công!`;
     expect(html).toContain("dán vào AI");
     expect(html).toContain("Chúc bạn tạo game thành công");
   });
+
+  it("handles pathological markdown without catastrophic backtracking (ReDoS immunity)", () => {
+    const evil = "\n" + "- # * ".repeat(200) + "\nSome text\n" + "- # * ".repeat(200);
+    const t0 = Date.now();
+    const html = renderToString(React.createElement(Markdown, { text: evil }));
+    const dt = Date.now() - t0;
+    expect(dt).toBeLessThan(100);
+    expect(html).toBeDefined();
+  });
+
+  it("splits multiple prompts (Prompt 1 and Prompt 2) into separate prompt boxes", () => {
+    const raw = `Dưới đây là 2 prompt cho bạn:
+
+### Prompt 1: Phong cách hoạt hình 3D
+Một chú mèo máy màu xanh đang bay lượn trên bầu trời thành phố tương lai, ánh sáng neon rực rỡ, chi tiết 8k, phong cách Pixar.
+
+### Prompt 2: Phong cách Cyberpunk thực tế
+A futuristic robot cat flying over neon-lit cyberpunk city at night, photorealistic, cinematic lighting, Octane render, 8k.
+
+Chúc bạn tạo được ảnh đẹp!`;
+
+    const html = renderToString(React.createElement(Markdown, { text: raw }));
+    expect(html).toContain("prompt_1.md");
+    expect(html).toContain("prompt_2.md");
+    expect(html).toContain("Một chú mèo máy màu xanh");
+    expect(html).toContain("A futuristic robot cat");
+  });
 });
