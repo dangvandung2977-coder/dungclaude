@@ -2,8 +2,10 @@
 import React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
 import rehypeHighlight from "rehype-highlight";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
+import rehypeKatex from "rehype-katex";
 import type { Root, Code } from "mdast";
 import { ExternalLink } from "lucide-react";
 import { CodeBlock } from "./CodeBlock";
@@ -24,8 +26,26 @@ const schema = {
     ...defaultSchema.attributes,
     code: [...(defaultSchema.attributes?.code ?? []), "className", "dataMeta"],
     span: [...(defaultSchema.attributes?.span ?? []), "className"],
+    div: [...(defaultSchema.attributes?.div ?? []), "className"],
   },
 };
+
+/**
+ * Normalizes LaTeX math delimiters from \( ... \) to $ ... $ (inline)
+ * and from \[ ... \] to $$ ... $$ (display), preserving code blocks.
+ */
+function normalizeMathDelimiters(text: string): string {
+  if (!text || (!text.includes("\\[") && !text.includes("\\("))) return text;
+  const parts = text.split(/(```[\s\S]*?```|`[^`\n]+`)/g);
+  return parts
+    .map((part, idx) => {
+      if (idx % 2 === 1) return part;
+      return part
+        .replace(/\\\[([\s\S]*?)\\\]/g, (_m, eq) => `\n$$\n${eq.trim()}\n$$\n`)
+        .replace(/\\\(([\s\S]*?)\\\)/g, (_m, eq) => `$${eq.trim()}$`);
+    })
+    .join("");
+}
 
 // ```lang filename.py or ```lang:filename.py → dataMeta="filename.py" on the <code> element
 function remarkFenceMeta() {
@@ -308,9 +328,10 @@ function autoBoxLoosePrompts(text: string): string {
 
 export const Markdown = React.memo(function Markdown({ text, streaming = false }: MarkdownProps) {
   const cleanText = React.useMemo(() => {
+    const withMath = normalizeMathDelimiters(text);
     // While streaming, do NOT unwrap or auto-box partial text — keep rendering 100% stable
-    if (streaming) return text;
-    const unwrapped = unwrapDocumentFences(text);
+    if (streaming) return withMath;
+    const unwrapped = unwrapDocumentFences(withMath);
     const repaired = repairNestedPromptFences(unwrapped);
     return autoBoxLoosePrompts(repaired);
   }, [text, streaming]);
@@ -318,8 +339,8 @@ export const Markdown = React.memo(function Markdown({ text, streaming = false }
   return (
     <div className="md-body select-text">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkFenceMeta]}
-        rehypePlugins={[[rehypeSanitize, schema], rehypeHighlight]}
+        remarkPlugins={[remarkGfm, remarkMath, remarkFenceMeta]}
+        rehypePlugins={[[rehypeSanitize, schema], rehypeHighlight, rehypeKatex]}
         components={{
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           pre(props: any) {

@@ -3,6 +3,7 @@ import { Geist, Geist_Mono, Newsreader } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import { SessionProvider } from "@/hooks/useSession";
 import "./globals.css";
+import "katex/dist/katex.min.css";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });

@@ -1,9 +1,10 @@
 "use client";
 import React, { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Menu, Plus } from "lucide-react";
+import { Menu, Plus, LogOut } from "lucide-react";
 import { Sidebar } from "@/components/sidebar/Sidebar";
 import { CommandPalette } from "@/components/palette/CommandPalette";
+import { useSession } from "@/hooks/useSession";
 import type { Conversation } from "@/types";
 
 export function AppShell({
@@ -13,9 +14,23 @@ export function AppShell({
   children: React.ReactNode;
   initialConversations: Conversation[];
 }) {
+  const { user } = useSession();
   const [conversations, setConversations] = useState<Conversation[]>(initialConversations);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [exitingObservation, setExitingObservation] = useState(false);
   const router = useRouter();
+
+  const handleExitObservation = async () => {
+    setExitingObservation(true);
+    try {
+      const res = await fetch("/api/admin/impersonate/exit", { method: "POST" });
+      if (res.ok) {
+        window.location.href = "/admin/users";
+        return;
+      }
+    } catch {}
+    setExitingObservation(false);
+  };
 
   const refresh = useCallback(async () => {
     const r = await fetch("/api/conversations").then((x) => x.json()).catch(() => null);
@@ -132,6 +147,31 @@ export function AppShell({
 
       {/* Main Workspace Frame */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0 relative">
+        {/* Observation Mode Top Banner */}
+        {user?.impersonator && (
+          <div className="bg-[#D97757]/15 border-b border-[#D97757]/30 px-3 py-1.5 flex items-center justify-between text-xs text-[#ECEBE4] z-30 shrink-0 backdrop-blur-xs select-none">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="flex h-2 w-2 rounded-full bg-[#D97757] animate-pulse shrink-0" />
+              <span className="font-medium truncate">
+                👁️ Đang quan sát tài khoản: <strong className="text-white">{user.name || user.email}</strong> ({user.email})
+              </span>
+              <span className="text-[10px] text-[#A6A49B] hidden sm:inline font-mono">
+                · Admin: {user.impersonator.email}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={handleExitObservation}
+              disabled={exitingObservation}
+              className="px-2.5 py-1 rounded-md bg-[#D97757] hover:bg-[#E2886A] text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer shrink-0 ml-2"
+              title="Thoát khỏi chế độ quan sát và quay lại tài khoản Admin"
+            >
+              <LogOut size={12} />
+              <span>{exitingObservation ? "Đang thoát…" : "Thoát quan sát"}</span>
+            </button>
+          </div>
+        )}
+
         {/* Mobile Header */}
         <header className="md:hidden flex items-center justify-between px-3 h-12 border-b bordered surface select-none shrink-0 z-20">
           <div className="flex items-center gap-2">

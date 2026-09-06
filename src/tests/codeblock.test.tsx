@@ -248,4 +248,16 @@ Chúc bạn tạo được ảnh đẹp!`;
     expect(html).toContain("Một chú mèo máy màu xanh");
     expect(html).toContain("A futuristic robot cat");
   });
+
+  it("renders inline and display math with KaTeX properly", () => {
+    const mathText = `Công thức năng lượng: $E = mc^2$ và phương trình:
+$$\\int_{0}^{1} x^2 dx = \\frac{1}{3}$$
+Cùng với ký hiệu LaTeX chuẩn:
+\\[ a^2 + b^2 = c^2 \\]`;
+
+    const html = renderToString(React.createElement(Markdown, { text: mathText }));
+    expect(html).toContain("katex");
+    expect(html).toContain("katex-mathml");
+    expect(html).toContain("katex-html");
+  });
 });

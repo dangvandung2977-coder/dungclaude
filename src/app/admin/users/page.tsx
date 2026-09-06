@@ -12,6 +12,7 @@ import {
   Eye,
   Bot,
   User as UserIcon,
+  LogIn,
 } from "lucide-react";
 
 interface UserSummary {
@@ -86,6 +87,35 @@ export default function AdminUsersPage() {
   const [inspectingConv, setInspectingConv] = useState<ConversationItem | null>(null);
   const [convMessages, setConvMessages] = useState<MessageItem[]>([]);
   const [convLoading, setConvLoading] = useState(false);
+  const [impersonatingId, setImpersonatingId] = useState<string | null>(null);
+
+  const handleImpersonate = async (targetUser: UserSummary) => {
+    if (
+      !confirm(
+        `Bạn có muốn đăng nhập vào tài khoản "${targetUser.name || targetUser.email}" để quan sát trực tiếp không? Bạn có thể thoát và quay lại bất cứ lúc nào.`
+      )
+    ) {
+      return;
+    }
+    setImpersonatingId(targetUser.id);
+    try {
+      const res = await fetch("/api/admin/impersonate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: targetUser.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Không thể đăng nhập vào tài khoản này");
+        setImpersonatingId(null);
+        return;
+      }
+      window.location.href = "/app";
+    } catch {
+      alert("Lỗi kết nối khi đăng nhập quan sát");
+      setImpersonatingId(null);
+    }
+  };
 
   useEffect(() => {
     fetch("/api/admin/users")
@@ -235,6 +265,18 @@ export default function AdminUsersPage() {
 
                   {/* Actions */}
                   <div className="flex items-center gap-2 shrink-0">
+                    {!isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => handleImpersonate(u)}
+                        disabled={impersonatingId === u.id}
+                        className="px-2.5 py-1.5 rounded-lg bg-[#D97757]/15 hover:bg-[#D97757]/25 border border-[#D97757]/35 text-xs font-semibold text-[#D97757] hover:text-[#E2886A] flex items-center gap-1.5 transition-colors cursor-pointer"
+                        title="Đăng nhập vào tài khoản này để quan sát trực tiếp chat & streaming"
+                      >
+                        <LogIn size={13} />
+                        <span>{impersonatingId === u.id ? "Đang vào…" : "Đăng nhập vào acc"}</span>
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => openUserDetails(u)}
@@ -276,13 +318,28 @@ export default function AdminUsersPage() {
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setSelectedUser(null)}
-                className="p-1.5 rounded-lg text-[#75736C] hover:text-[#ECEBE4] hover:bg-white/[0.05] transition-colors cursor-pointer"
-              >
-                <X size={18} />
-              </button>
+              <div className="flex items-center gap-2">
+                {selectedUser.role !== "admin" && (
+                  <button
+                    type="button"
+                    onClick={() => handleImpersonate(selectedUser)}
+                    disabled={impersonatingId === selectedUser.id}
+                    className="px-3 py-1.5 rounded-lg bg-[#D97757] hover:bg-[#E2886A] text-xs font-semibold text-white flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+                    title="Đăng nhập vào tài khoản này để quan sát trực tiếp chat & streaming"
+                  >
+                    <LogIn size={13} />
+                    <span>{impersonatingId === selectedUser.id ? "Đang vào…" : "Đăng nhập vào acc này"}</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedUser(null)}
+                  className="p-1.5 rounded-lg text-[#75736C] hover:text-[#ECEBE4] hover:bg-white/[0.05] transition-colors cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
             </div>
 
             {/* Modal Navigation Tabs */}

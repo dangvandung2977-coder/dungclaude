@@ -4,7 +4,17 @@ import { cookies } from "next/headers";
 import { getSupabase, uid } from "@/lib/db/supabase";
 import { config, isAdminEmail } from "@/lib/config";
 
-export interface SessionUser { id: string; email: string; name: string | null; role: string; }
+export interface SessionUser {
+  id: string;
+  email: string;
+  name: string | null;
+  role: string;
+  impersonator?: {
+    id: string;
+    email: string;
+    name: string | null;
+  } | null;
+}
 
 const key = new TextEncoder().encode(config.authSecret.padEnd(32, "0").slice(0, 64));
 
@@ -29,8 +39,25 @@ export async function readSession(): Promise<SessionUser | null> {
     const token = jar.get(config.sessionCookie)?.value;
     if (!token) return null;
     const { payload } = await jose.jwtVerify(token, key);
-    return { id: String(payload.id), email: String(payload.email), name: (payload.name as string) ?? null, role: String(payload.role ?? "user") };
+    return {
+      id: String(payload.id),
+      email: String(payload.email),
+      name: (payload.name as string) ?? null,
+      role: String(payload.role ?? "user"),
+      impersonator: (payload.impersonator as SessionUser["impersonator"]) ?? null,
+    };
   } catch { return null; }
+}
+
+export async function getUserById(id: string): Promise<SessionUser | null> {
+  const { data, error } = await getSupabase().from("users").select("id, email, name, role").eq("id", id).maybeSingle();
+  if (error || !data) return null;
+  return {
+    id: String(data.id),
+    email: String(data.email),
+    name: (data.name as string) ?? null,
+    role: String(data.role ?? "user"),
+  };
 }
 
 export async function requireUser(): Promise<SessionUser> {

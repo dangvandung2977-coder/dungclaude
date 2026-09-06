@@ -614,3 +614,20 @@ body {
   animation: glow-breathe 2s ease-in-out infinite;
 }
 
+/* ── KaTeX Math Formula Enhancements ── */
+.katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.5rem 0.25rem;
+  margin: 0.75rem 0 !important;
+  scrollbar-width: thin;
+}
+.katex {
+  font-size: 1.05em;
+  text-rendering: auto;
+}
+.katex-html {
+  color: var(--text);
+}
+
+

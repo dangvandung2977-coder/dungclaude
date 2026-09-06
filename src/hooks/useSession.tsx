@@ -1,7 +1,17 @@
 "use client";
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 
-export interface SessionUser { id: string; email: string; name: string | null; role: string; }
+export interface SessionUser {
+  id: string;
+  email: string;
+  name: string | null;
+  role: string;
+  impersonator?: {
+    id: string;
+    email: string;
+    name: string | null;
+  } | null;
+}
 const Ctx = createContext<{ user: SessionUser | null; loading: boolean; refresh: () => Promise<void>; logout: () => Promise<void> }>({
   user: null, loading: true, refresh: async () => {}, logout: async () => {},
 });
