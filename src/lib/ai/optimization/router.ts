@@ -33,13 +33,29 @@ function hasCodeSignals(m: string): boolean {
 }
 
 // ── Model tiers for scoring ──
-// intelligence/speed heuristics from price: higher price = higher quality,
-// lower latency-class. Custom models from DB carry real prices.
+// intelligence/speed heuristics from price or name: higher intelligence = higher quality.
+// When custom models have zero configured price, infer from model name/family.
 function modelTiers(m: AIModel): { intelligence: number; speed: number } {
   const inP = m.inputPricePerM;
-  // Intelligence 1..10 from input price (log scale): $0.1/M → ~4, $10/M → ~10
-  const intelligence = Math.max(1, Math.min(10, Math.round(Math.log10(Math.max(inP, 0.05) / 0.05) * 2.5 + 1)));
-  // Speed: cheaper = faster (approximation; custom local models are both cheap AND fast)
+  let intelligence: number;
+
+  if (inP > 0) {
+    // Intelligence 1..10 from input price (log scale): $0.1/M → ~4, $10/M → ~10
+    intelligence = Math.max(1, Math.min(10, Math.round(Math.log10(Math.max(inP, 0.05) / 0.05) * 2.5 + 1)));
+  } else {
+    // Custom/local model with 0 input price: infer capability tier from name
+    const n = `${m.id} ${m.name}`.toLowerCase();
+    if (/(?:opus|thinking|astra|gpt-6|gpt-5|o1|o3|o4|r1|pro-0813|max|2\.4t)/i.test(n)) {
+      intelligence = 9;
+    } else if (/(?:sonnet|deepseek-v4|deepseek-v3|kimi-k3|fable|glm-5\.3(?!-flash|-free)|qwen-?3\.8-max)/i.test(n)) {
+      intelligence = 8;
+    } else if (/(?:flash|free|mini|lite|nano|small|haiku)/i.test(n)) {
+      intelligence = 4;
+    } else {
+      intelligence = 6;
+    }
+  }
+
   const speed = Math.max(1, Math.min(10, Math.round(11 - Math.min(intelligence, 10))));
   return { intelligence, speed };
 }

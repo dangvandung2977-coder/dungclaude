@@ -864,35 +864,45 @@ export function ChatView({
     };
   }, []);
 
-  // When loading a conversation (e.g. reload or navigation), attach to VPS background streaming immediately!
+  // Live sync: attach to VPS background streaming or sync new messages across tabs/devices
   useEffect(() => {
     if (!activeConvId || activeConvId === "new") return;
-
-    // Never attach resume stream if this tab is already actively streaming/generating locally
-    if (isGeneratingRef.current || isRecoveringRef.current) return;
 
     // Check if initial SSR messages already contain a streaming assistant message
     const initialStreaming = messages.find(
       (m) => m.role === "assistant" && (m.status === "streaming" || m.id.startsWith("asst_active_") || m.id.startsWith("asst_bg_"))
     );
-    if (initialStreaming) {
+    if (initialStreaming && !isGeneratingRef.current && !isRecoveringRef.current) {
       attachResumeStreamRef.current?.(activeConvId, initialStreaming.id, false);
       return;
     }
 
+    const syncLiveStatus = async () => {
+      if (!activeConvId || activeConvId === "new") return;
+      if (isGeneratingRef.current || isRecoveringRef.current) return;
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
 
-    fetch(`/api/chat/status?conversationId=${activeConvId}`)
-      .then((r) => r.json())
-      .then((data) => {
+      try {
+        const r = await fetch(`/api/chat/status?conversationId=${activeConvId}`);
+        if (!r.ok) return;
+        const data = await r.json();
+
+        // Case 1: Active streaming generation detected on server!
         if (data.active && data.status === "streaming") {
-          isRecoveringRef.current = true;
+          isRecoveringRef.current = false;
           isGeneratingRef.current = true;
           setStreaming(true);
 
-          let targetId = data.messageId;
+          let targetId = data.messageId || `asst_bg_${activeConvId}`;
           setMessages((prev) => {
             const existingStreaming = prev.find(
-              (m) => m.role === "assistant" && (m.status === "streaming" || m.id.startsWith("asst_bg_") || m.id.startsWith("tmp_asst_") || m.id.startsWith("asst_active_"))
+              (m) =>
+                m.role === "assistant" &&
+                (m.status === "streaming" ||
+                  m.id === targetId ||
+                  m.id.startsWith("asst_bg_") ||
+                  m.id.startsWith("tmp_asst_") ||
+                  m.id.startsWith("asst_active_"))
             );
             if (existingStreaming) {
               targetId = existingStreaming.id;
@@ -900,8 +910,6 @@ export function ChatView({
                 m.id === targetId ? { ...m, content: data.text || m.content, status: "streaming" as const } : m
               );
             }
-            if (!targetId) targetId = `asst_bg_${activeConvId}`;
-            if (prev.some((m) => m.id === targetId)) return prev;
             return [
               ...prev,
               {
@@ -918,11 +926,37 @@ export function ChatView({
           });
 
           if (targetId) {
-            attachResumeStreamRef.current?.(activeConvId, targetId);
+            attachResumeStreamRef.current?.(activeConvId, targetId, false);
           }
+          return;
         }
-      })
-      .catch(() => {});
+
+        // Case 2: No active stream, but new messages arrived (e.g. user prompt or finished assistant response)
+        if (data.latestMessage?.id) {
+          setMessages((prev) => {
+            const hasLatest = prev.some((m) => m.id === data.latestMessage.id);
+            if (!hasLatest) {
+              fetch(`/api/conversations/${activeConvId}`)
+                .then((res) => res.json())
+                .then((json) => {
+                  if (json.messages && Array.isArray(json.messages)) {
+                    setMessages(json.messages);
+                  }
+                })
+                .catch(() => {});
+            }
+            return prev;
+          });
+        }
+      } catch {}
+    };
+
+    // Run immediately on load
+    void syncLiveStatus();
+
+    // Background sync interval (every 2.5s)
+    const interval = setInterval(syncLiveStatus, 2500);
+    return () => clearInterval(interval);
   }, [activeConvId]);
 
   // The one true stream executor. Stored in a ref so consumers get a stable

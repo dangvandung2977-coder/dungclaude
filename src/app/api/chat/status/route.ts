@@ -23,6 +23,9 @@ export async function GET(req: Request): Promise<Response> {
     }
 
     const task = getActiveTask(conversationId);
+    const messages = await listMessages(conversationId, 2);
+    const lastMsg = messages[messages.length - 1] ?? null;
+
     if (task && task.userId === user.id) {
       return ok({
         active: task.status === "streaming",
@@ -32,12 +35,9 @@ export async function GET(req: Request): Promise<Response> {
         modelId: task.modelId,
         latencyMs: task.latencyMs,
         error: task.error,
+        latestMessage: lastMsg,
       });
     }
-
-    // If no active in-memory task, retrieve latest message from DB
-    const messages = await listMessages(conversationId, 2);
-    const lastMsg = messages[messages.length - 1] ?? null;
 
     return ok({
       active: false,

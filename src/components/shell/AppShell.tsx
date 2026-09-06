@@ -34,7 +34,22 @@ export function AppShell({
 
   const refresh = useCallback(async () => {
     const r = await fetch("/api/conversations").then((x) => x.json()).catch(() => null);
-    if (r?.conversations) setConversations(r.conversations);
+    if (r?.conversations && Array.isArray(r.conversations)) {
+      setConversations((prev) => {
+        if (
+          prev.length === r.conversations.length &&
+          prev.every(
+            (c, i) =>
+              c.id === r.conversations[i].id &&
+              c.title === r.conversations[i].title &&
+              c.updatedAt === r.conversations[i].updatedAt
+          )
+        ) {
+          return prev;
+        }
+        return r.conversations;
+      });
+    }
   }, []);
 
   const handleDeleteConversation = useCallback((id: string) => {
@@ -124,7 +139,16 @@ export function AppShell({
     window.addEventListener("conversation:updated", handleUpdate);
     window.addEventListener("conversation:bump", handleBump);
     window.addEventListener("conversation:renamed", handleRenamed);
+
+    // Background poll: sync sidebar across devices/tabs every 4s when visible
+    const syncInterval = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        refresh();
+      }
+    }, 4000);
+
     return () => {
+      clearInterval(syncInterval);
       window.removeEventListener("conversation:created", handleCreated);
       window.removeEventListener("conversation:updated", handleUpdate);
       window.removeEventListener("conversation:bump", handleBump);
