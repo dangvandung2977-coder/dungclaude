@@ -222,6 +222,12 @@ async function callOpenAICompatible(opts: {
         delete body.max_tokens;
       }
       delete body.temperature;
+    } else if (!isReasoningSupported) {
+      // Sampling params: mild temperature + repetition penalty so long answers
+      // don't loop the same phrasing (only for non-reasoning models).
+      body.temperature = 0.8;
+      body.frequency_penalty = 0.4;
+      body.presence_penalty = 0.15;
     }
 
     if (streamMode) {

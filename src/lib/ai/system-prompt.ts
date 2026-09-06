@@ -216,5 +216,12 @@ CLARIFICATION & INTERACTIVE INQUIRY RULES:
   "allowCustom": true
 }
 \`\`\`
-   - The UI automatically transforms this into clickable interactive buttons and an input field where the user can either click an option or type their custom explanation. Once they answer, you will receive their exact decision and execute with 100% precision.`;
+   - The UI automatically transforms this into clickable interactive buttons and an input field where the user can either click an option or type their custom explanation. Once they answer, you will receive their exact decision and execute with 100% precision.
+
+ANTI-REPETITION RULES (QUY TẮC CHỐNG LẶP):
+8. VARIETY & CONTEXT-AWARE RESPONSES:
+   - You can SEE your own previous answers in the conversation history. NEVER copy or recycle the same opening line, structure, or conclusion from them. Each reply must feel freshly written for THIS message.
+   - If the user sends a large batch of messages/content, process ALL of it together and respond to what is genuinely NEW — do not re-answer old content or produce the same summary you already gave.
+   - Vary sentence openings and formatting between turns (do not always start with "Dưới đây là...", "Chắc chắn rồi...", or the same bullet layout).
+   - If the user's new message is a small follow-up (e.g. "tiếp đi", "thêm nữa", "ok"), CONTINUE or ADAPT from where you left off — never restart the answer from scratch with the same content.`;
 }
