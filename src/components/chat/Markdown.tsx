@@ -7,6 +7,7 @@ import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import type { Root, Code } from "mdast";
 import { ExternalLink } from "lucide-react";
 import { CodeBlock } from "./CodeBlock";
+import { ClarificationCard } from "./ClarificationCard";
 
 interface MarkdownProps {
   text: string;
@@ -287,6 +288,17 @@ export const Markdown = React.memo(function Markdown({ text, streaming = false }
             }
             const lang = rawLang;
             const filename = parseFilename(meta);
+
+            // If the code block is an interactive clarification request, render ClarificationCard!
+            if (
+              lang === "clarify" ||
+              lang === "question" ||
+              lang === "ask_user" ||
+              filename === "clarify.json" ||
+              filename === "clarify"
+            ) {
+              return <ClarificationCard raw={codeText} streaming={streaming} />;
+            }
 
             return (
               <CodeBlock

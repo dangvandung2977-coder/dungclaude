@@ -170,8 +170,30 @@ export function Composer({
     };
 
     window.addEventListener("composer:set-text", handleSetText);
-    return () => window.removeEventListener("composer:set-text", handleSetText);
-  }, []);
+
+    const handleSendDirect = (e: Event) => {
+      const detail = (e as CustomEvent<{ text: string }>).detail;
+      if (!detail?.text?.trim() || streaming || uploading || disabled || isSubmittingRef.current) return;
+      isSubmittingRef.current = true;
+      try {
+        onSend(detail.text.trim(), [], {
+          webSearch: mode === "cowork",
+          tools: mode === "cowork",
+          reasoningEffort: isReasoning ? activeEffort : undefined,
+        });
+      } finally {
+        setTimeout(() => {
+          isSubmittingRef.current = false;
+        }, 250);
+      }
+    };
+    window.addEventListener("composer:send-direct", handleSendDirect);
+
+    return () => {
+      window.removeEventListener("composer:set-text", handleSetText);
+      window.removeEventListener("composer:send-direct", handleSendDirect);
+    };
+  }, [streaming, uploading, disabled, mode, isReasoning, activeEffort, onSend]);
 
   const lastPickRef = useRef<{ time: number; sig: string }>({ time: 0, sig: "" });
 
